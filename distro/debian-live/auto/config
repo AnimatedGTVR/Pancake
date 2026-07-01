@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+lb config noauto \
+  --mode debian \
+  --distribution trixie \
+  --archive-areas "main non-free-firmware" \
+  --binary-images iso-hybrid \
+  --bootappend-live "boot=live components systemd.show_status=yes" \
+  --iso-application "Pancake Desktop Environment Live" \
+  --iso-publisher "Pancake DE" \
+  --iso-volume "PANCAKE_DEBIAN" \
+  "${@}"

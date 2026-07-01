@@ -1,0 +1,4 @@
+# Pathnames of valid login shells.
+/bin/sh
+/bin/bash
+/usr/bin/bash

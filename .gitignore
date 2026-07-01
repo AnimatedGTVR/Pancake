@@ -1,0 +1,29 @@
+/target
+
+# Rust build output
+/target/
+
+# Pancake ISO build output
+/iso/out/
+
+# Generated ISO files
+*.iso
+*.img
+*.qcow2
+*.vdi
+*.vmdk
+
+# Archives / release bundles
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# Logs / caches
+*.log
+.cache/
+tmp/
+temp/
+
+# Generated Pancake binary copied into ISO profile
+/iso/profile/airootfs/usr/local/bin/pancake

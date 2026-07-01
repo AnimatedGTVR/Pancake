@@ -1,0 +1,74 @@
+# ── Core system ───────────────────────────────────────────────────────────────
+base
+linux
+linux-firmware
+mkinitcpio
+mkinitcpio-archiso
+systemd
+bash
+coreutils
+util-linux
+procps-ng
+psmisc
+grep
+sed
+gawk
+findutils
+shadow
+sudo
+
+# ── Boot ──────────────────────────────────────────────────────────────────────
+syslinux
+efibootmgr
+dosfstools
+
+# ── CPU microcode (both, initrd picks the right one at runtime) ───────────────
+amd-ucode
+intel-ucode
+
+# ── GPU / display ─────────────────────────────────────────────────────────────
+mesa
+libdrm
+libglvnd
+# AMD / Intel open-source (most common on desktops/laptops)
+vulkan-radeon
+vulkan-intel
+libva-mesa-driver
+
+# ── Seat management (required by Pancake's libseat backend) ───────────────────
+seatd
+
+# ── Wayland + input ──────────────────────────────────────────────────────────
+wayland
+wayland-protocols
+libinput
+libxkbcommon
+xkeyboard-config
+foot
+ttf-dejavu
+
+# ── XWayland (run legacy X11 apps inside Pancake) ────────────────────────────
+xorg-xwayland
+
+# ── Networking (useful in a live session) ────────────────────────────────────
+iproute2
+iw
+dhcpcd
+openssh
+
+# ── Basic tools ───────────────────────────────────────────────────────────────
+less
+nano
+vim
+file
+which
+man-db
+man-pages
+tar
+gzip
+bzip2
+xz
+zstd
+wget
+curl
+git

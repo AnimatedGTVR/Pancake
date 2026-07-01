@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PANCAKE_STARTUP_TERMINAL=1
+exec start-pancake

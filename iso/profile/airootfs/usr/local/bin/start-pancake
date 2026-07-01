@@ -1,0 +1,20 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+export RUST_LOG="${RUST_LOG:-pancake=debug,smithay=warn}"
+export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
+
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl is-active --quiet seatd.service || systemctl start seatd.service 2>/dev/null || true
+fi
+
+: > /root/pancake.log
+echo "Starting Pancake on $(tty 2>/dev/null || printf unknown)" | tee -a /root/pancake.log
+echo "Logs: /root/pancake.log"
+
+exec pancake --tty 1 >> /root/pancake.log 2>&1

@@ -1,0 +1,13 @@
+
+  ____                    _
+ |  _ \ __ _ _ __   ___ __ _| | _____
+ | |_) / _` | '_ \ / __/ _` | |/ / _ \
+ |  __/ (_| | | | | (_| (_| |   <  __/
+ |_|   \__,_|_| |_|\___\__,_|_|\_\___|
+
+ Aero-COSMIC Desktop Environment  —  Live ISO
+
+ Pancake boots to a live root shell on TTY1.
+ Run 'start-pancake' to launch the compositor.
+ Run 'start-pancake-terminal' to launch with foot.
+ Run 'less /root/pancake.log' after a failed launch.

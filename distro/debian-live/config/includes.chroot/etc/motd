@@ -1,0 +1,8 @@
+
+ Pancake Desktop Environment Live
+
+ Pancake OS is now built on Debian Live.
+ Run 'start-pancake' to launch the compositor.
+ Run 'start-pancake-terminal' to launch with foot.
+ Run 'less /root/pancake.log' after a failed launch.
+

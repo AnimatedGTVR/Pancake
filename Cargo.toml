@@ -1,0 +1,50 @@
+[package]
+name = "pancake"
+version = "0.1.0"
+edition = "2021"
+description = "Pancake — the Sweetest, Smoothest Desktop Environment (Aero-COSMIC)"
+license = "GPL-3.0"
+
+[[bin]]
+name = "pancake"
+path = "src/main.rs"
+
+[dependencies]
+smithay = { version = "0.7", default-features = false, features = [
+    "backend_winit",
+    "backend_drm",
+    "backend_gbm",
+    "backend_libinput",
+    "backend_udev",
+    "backend_egl",
+    "backend_session",
+    "backend_session_libseat",
+    "renderer_gl",
+    "renderer_pixman",
+    "wayland_frontend",
+    "xwayland",
+    "desktop",
+] }
+
+# Must match smithay's transitive versions exactly
+calloop  = "0.14"
+winit    = { version = "0.30" }
+input    = { version = "0.9", features = ["libinput_1_19"] }
+
+wayland-server    = "0.31"
+wayland-protocols = { version = "0.32", features = ["staging", "unstable"] }
+
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+clap      = { version = "4", features = ["derive"] }
+thiserror = "2"
+anyhow    = "1"
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1

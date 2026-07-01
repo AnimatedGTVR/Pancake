@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+systemctl enable getty@tty1.service
+systemctl enable seatd.service || true

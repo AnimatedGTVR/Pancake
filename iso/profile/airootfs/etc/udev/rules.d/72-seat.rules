@@ -1,0 +1,4 @@
+# Grant the seat group access to DRM and input devices so Pancake can
+# claim DRM master via seatd without running as root.
+SUBSYSTEM=="drm",    GROUP="seat", MODE="0660"
+SUBSYSTEM=="input",  GROUP="input", MODE="0660"
