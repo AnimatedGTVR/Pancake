@@ -40,6 +40,10 @@ impl XdgShellHandler for PancakeState {
             .find(|w| w.wl_surface().as_deref() == Some(&target))
             .cloned();
         if let Some(w) = window {
+            // Clear focused_window if the closing window was focused.
+            if self.focused_window.as_ref() == Some(&w) {
+                self.focused_window = None;
+            }
             self.space.unmap_elem(&w);
         }
     }

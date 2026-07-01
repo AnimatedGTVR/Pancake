@@ -3,6 +3,7 @@ use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod backend;
+mod config;
 mod handlers;
 mod render;
 mod shell;

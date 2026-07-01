@@ -26,6 +26,7 @@ use smithay::{
     xwayland::xwm::X11Wm,
 };
 
+use crate::config::Config;
 use crate::render::AeroRenderer;
 
 // ── Per-client state ────────────────────────────────────────────────────────
@@ -70,6 +71,12 @@ pub struct PancakeState {
 
     // Aero glass rendering pipeline
     pub renderer: AeroRenderer,
+
+    // Runtime configuration (terminal command, etc.)
+    pub config: Config,
+
+    // Currently focused window, tracked for Super+Tab cycling.
+    pub focused_window: Option<Window>,
 }
 
 impl PancakeState {
@@ -101,7 +108,41 @@ impl PancakeState {
             space: Space::default(),
             xwm: None,
             renderer: AeroRenderer::default(),
+            config: Config::from_env(),
+            focused_window: None,
         }
+    }
+
+    /// Cycle keyboard focus to the next window in the space.
+    ///
+    /// Windows are cycled in map order. The focused window is raised to the top
+    /// so it is visually on top of everything else.
+    pub fn cycle_focus(&mut self, serial: smithay::utils::Serial) {
+        let windows: Vec<Window> = self.space.elements().cloned().collect();
+        if windows.is_empty() {
+            return;
+        }
+
+        let next = if let Some(cur) = &self.focused_window {
+            let pos = windows.iter().position(|w| w == cur);
+            match pos {
+                Some(i) => windows[(i + 1) % windows.len()].clone(),
+                None => windows[0].clone(),
+            }
+        } else {
+            windows[0].clone()
+        };
+
+        self.space.raise_element(&next, true);
+
+        use smithay::wayland::seat::WaylandFocus;
+        if let Some(surf) = next.wl_surface() {
+            if let Some(keyboard) = self.seat.get_keyboard() {
+                keyboard.set_focus(self, Some(surf.into_owned()), serial);
+            }
+        }
+
+        self.focused_window = Some(next);
     }
 }
 

@@ -73,6 +73,20 @@ impl PancakeState {
                                 }
                             }
 
+                            // Super+T → launch terminal
+                            if press && mods.logo && keysym.modified_sym() == Keysym::t {
+                                let term = state.config.terminal.clone();
+                                tracing::info!("Spawning terminal: {term}");
+                                if let Err(e) = std::process::Command::new(&term).spawn() {
+                                    tracing::warn!("Failed to spawn {term}: {e}");
+                                }
+                            }
+
+                            // Super+Tab → cycle window focus
+                            if press && mods.logo && keysym.modified_sym() == Keysym::Tab {
+                                state.cycle_focus(serial);
+                            }
+
                             // Super+Escape → quit
                             if press && mods.logo && keysym.modified_sym() == Keysym::Escape {
                                 tracing::info!("Super+Escape — exiting Pancake");
@@ -122,10 +136,18 @@ impl PancakeState {
                             })
                         };
 
-                        // Click-to-focus
+                        // Click-to-focus + track focused window
                         if let Some((surf, _)) = self.surface_under(location) {
+                            let win = self
+                                .space
+                                .elements()
+                                .find(|w| w.wl_surface().as_deref() == Some(&surf))
+                                .cloned();
                             if let Some(keyboard) = self.seat.get_keyboard() {
                                 keyboard.set_focus(self, Some(surf), serial);
+                            }
+                            if win.is_some() {
+                                self.focused_window = win;
                             }
                         }
 
