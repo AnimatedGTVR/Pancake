@@ -1,0 +1,11 @@
+[Unit]
+Description=Create XDG_RUNTIME_DIR for root (Pancake live session)
+Before=getty@tty1.service seatd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/install -dm700 /run/user/0
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -172,18 +172,20 @@ The container installs a current Rust toolchain with `rustup`, builds Pancake in
 ### Boot the live image
 
 ```sh
-# KVM
+# QEMU/KVM (recommended for testing)
 qemu-system-x86_64 -enable-kvm -m 2G -cdrom iso/out/debian/pancake-debian-latest.iso
 
 # Real hardware
 sudo dd if=iso/out/debian/pancake-debian-latest.iso of=/dev/sdX bs=4M status=progress oflag=sync
 ```
 
-Log in as `root` (no password). Then:
+**VirtualBox:** Set the graphics controller to **VMSVGA** (not VBoxVGA) and allocate at least 128 MB video memory. If you see only a blank blue screen, wait 5 seconds for the GRUB menu to auto-select, or press Enter to boot immediately. If it stays blue, select **"Pancake Live (safe mode / VirtualBox)"** from the GRUB menu.
+
+Log in as `root` — no password, just press Enter. The MOTD explains the commands.
 
 ```sh
-start-pancake             # launch compositor (no terminal client)
-start-pancake-terminal    # launch compositor + request a foot terminal
+start-pancake             # compositor only (blue background, use Super+T for terminal)
+start-pancake-terminal    # compositor + launches foot automatically after socket is ready
 ```
 
 Compositor logs: `/root/pancake.log`

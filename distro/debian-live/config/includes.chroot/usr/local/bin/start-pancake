@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export RUST_LOG="${RUST_LOG:-pancake=debug,smithay=warn}"
+export RUST_LOG="${RUST_LOG:-pancake=warn,smithay=warn}"
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
 export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
@@ -9,12 +9,31 @@ export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
+# Start seatd if not already running
 if command -v systemctl >/dev/null 2>&1; then
-    systemctl is-active --quiet seatd.service || systemctl start seatd.service 2>/dev/null || true
+    systemctl is-active --quiet seatd.service 2>/dev/null \
+        || systemctl start seatd.service 2>/dev/null \
+        || true
 fi
 
-: > /root/pancake.log
-echo "Starting Pancake on $(tty 2>/dev/null || printf unknown)" | tee -a /root/pancake.log
-echo "Logs: /root/pancake.log"
+printf 'Starting Pancake...\n'
+printf 'Logs: /tmp/pancake.log\n\n'
 
-exec pancake --tty 1 >> /root/pancake.log 2>&1
+# Redirect compositor output entirely to log — do not mix with terminal
+pancake --tty 1 > /tmp/pancake.log 2>&1 &
+PANCAKE_PID=$!
+
+SOCKET="$XDG_RUNTIME_DIR/wayland-0"
+for i in $(seq 1 20); do
+    [ -S "$SOCKET" ] && break
+    sleep 0.5
+done
+
+if [ -S "$SOCKET" ]; then
+    printf 'Socket ready — launching foot\n'
+    WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" foot &
+else
+    printf 'WARNING: no Wayland socket after 10s. See /tmp/pancake.log\n'
+fi
+
+wait "$PANCAKE_PID" || true

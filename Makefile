@@ -22,7 +22,7 @@ DEBIAN_PROFILE := distro/debian-live
 DEBIAN_WORK    := /tmp/pancake-debian-live
 CONTAINER_RUNTIME ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 
-.PHONY: all build check clean install uninstall run run-winit fmt lint deps iso iso-debian iso-arch iso-info iso-clean
+.PHONY: all build check clean install uninstall run run-winit fmt lint deps iso iso-debian iso-arch iso-info iso-clean qemu-debian
 
 ## Default target
 all: build
@@ -101,6 +101,27 @@ iso-debian:
 	  debian:trixie \
 	  ./scripts/build-debian-iso-container.sh
 
+## Boot the latest Debian ISO in QEMU with correct display settings.
+##
+## Uses -vga std (VESA-compatible, works without guest drivers) so the
+## framebuffer console shows text.  KVM is used when available.
+##
+## Usage: make qemu-debian
+qemu-debian:
+	$(eval ISO := $(shell ls -t $(DEBIAN_ISO_OUT)/pancake-debian-*.iso 2>/dev/null | head -1))
+	@test -n "$(ISO)" || \
+	  { echo "ERROR: no Debian ISO found in $(DEBIAN_ISO_OUT). Run: sudo make iso"; exit 1; }
+	@echo "==> Booting $(ISO)"
+	qemu-system-x86_64 \
+	  $(shell command -v kvm >/dev/null 2>&1 && echo "-enable-kvm" || true) \
+	  -m 2048 \
+	  -smp 2 \
+	  -cdrom "$(ISO)" \
+	  -boot d \
+	  -vga std \
+	  -display gtk,show-cursor=on \
+	  -no-reboot
+
 ## Build the legacy Arch Linux live ISO containing Pancake
 ##
 ## Requires archiso:  sudo pacman -S archiso
@@ -146,6 +167,7 @@ help:
 	@echo "  make clean       Remove build artifacts"
 	@echo "  make iso         Build Debian Live ISO through Docker/Podman"
 	@echo "  make iso-arch    Build legacy Arch Linux live ISO"
+	@echo "  make qemu-debian Boot the Debian ISO in QEMU (-vga std)"
 	@echo "  make iso-info    Show ISO labels so Arch/Debian artifacts are obvious"
 	@echo "  make iso-clean   Remove ISO work/output directories"
 	@echo ""

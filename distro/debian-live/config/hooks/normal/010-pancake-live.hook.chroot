@@ -3,3 +3,4 @@ set -eu
 
 systemctl enable getty@tty1.service
 systemctl enable seatd.service || true
+systemctl enable pancake-xdg-runtime.service || true

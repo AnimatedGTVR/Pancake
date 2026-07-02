@@ -1,0 +1,12 @@
+[Unit]
+Description=Seat management daemon
+Documentation=man:seatd(1)
+After=systemd-udevd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/seatd -g seat
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
