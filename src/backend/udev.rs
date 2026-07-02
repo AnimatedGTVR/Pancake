@@ -144,6 +144,8 @@ pub fn run(tty: Option<u8>) -> Result<(), Box<dyn std::error::Error>> {
             state.startup_terminal_spawned = true;
         }
 
+        state.pancake.maybe_reload_config();
+
         while let Some(stream) = listener.accept().ok().flatten() {
             display
                 .handle()

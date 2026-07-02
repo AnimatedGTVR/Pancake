@@ -33,6 +33,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Args::parse();
 
+    config::install_sighup_handler();
+
     if args.winit {
         info!("Starting Pancake with Winit backend (development mode)");
         backend::winit::run()

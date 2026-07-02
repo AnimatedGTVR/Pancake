@@ -88,6 +88,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
 
+        state.maybe_reload_config();
+
         // ── Render ───────────────────────────────────────────────────────────
         let size = winit_backend.window_size();
         let damage = Rectangle::from_size(size);
@@ -103,10 +105,20 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .render_elements_for_output(renderer, &output, 1.0)
                 .unwrap_or_default();
 
+            // Run the Aero blur pipeline into offscreen FBOs (surfaceless GL).
+            // Must happen before renderer.render() binds the EGL surface.
+            state.renderer.begin_frame(renderer, size.w as u32, size.h as u32);
+
             let mut frame = renderer.render(&mut framebuffer, size, Transform::Flipped180)?;
 
-            // Aero-COSMIC dark base (deep midnight blue, not pure black).
-            frame.clear(Color32F::new(0.05, 0.05, 0.08, 1.0), &[damage])?;
+            if state.renderer.blurred_background().is_some() {
+                // Blurred gradient is ready — draw it as the desktop background.
+                state.renderer.draw_background(&mut frame)?;
+            } else {
+                // First frame: fall back to solid dark background until pipeline warms up.
+                frame.clear(Color32F::new(0.05, 0.05, 0.08, 1.0), &[damage])?;
+            }
+
             draw_render_elements(&mut frame, 1.0, &elements, &[damage])?;
             let _ = frame.finish()?;
         }

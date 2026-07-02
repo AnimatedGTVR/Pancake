@@ -26,7 +26,7 @@ use smithay::{
     xwayland::xwm::X11Wm,
 };
 
-use crate::config::Config;
+use crate::config::{Config, RELOAD_REQUESTED};
 use crate::render::AeroRenderer;
 
 // ── Per-client state ────────────────────────────────────────────────────────
@@ -95,6 +95,10 @@ impl PancakeState {
             .expect("keyboard init failed");
         seat.add_pointer();
 
+        let config = Config::load();
+        let mut renderer = AeroRenderer::default();
+        renderer.apply_config(&config);
+
         Self {
             display_handle: dh,
             compositor_state,
@@ -107,9 +111,26 @@ impl PancakeState {
             data_device_state,
             space: Space::default(),
             xwm: None,
-            renderer: AeroRenderer::default(),
-            config: Config::from_env(),
+            renderer,
+            config,
             focused_window: None,
+        }
+    }
+
+    /// Reload config from disk and apply any changed values.
+    pub fn reload_config(&mut self) {
+        use std::sync::atomic::Ordering;
+        RELOAD_REQUESTED.store(false, Ordering::Relaxed);
+        self.config = Config::load();
+        self.renderer.apply_config(&self.config);
+        tracing::info!("Config reloaded");
+    }
+
+    /// Check if a SIGHUP-triggered reload is pending and, if so, reload.
+    pub fn maybe_reload_config(&mut self) {
+        use std::sync::atomic::Ordering;
+        if RELOAD_REQUESTED.load(Ordering::Relaxed) {
+            self.reload_config();
         }
     }
 
