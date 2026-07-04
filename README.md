@@ -1,229 +1,184 @@
 # Pancake
 
-**The Sweetest, Smoothest Desktop Environment.**
+**The sweetest, smoothest desktop environment.**
 
-Pancake is a Wayland compositor written in Rust. Its defining visual identity is *Aero-COSMIC* — a modern take on the Windows Vista/7 Aero Glass aesthetic, where panels, window decorations, and surfaces use real-time frosted-glass blur with a soft blue-white tint.
+Pancake is a Wayland compositor written in Rust and built on [Smithay](https://github.com/Smithay/smithay).
 
-Built on [Smithay](https://github.com/Smithay/smithay). Ships as a standalone Linux distribution on a Debian Live base.
+Its main visual style is **Aero-COSMIC** — a mix of classic Windows Vista/7 Aero Glass and modern Linux desktop design. The goal is a smooth, glassy, lightweight desktop with frosted blur, soft blue-white tinting, and a clean shell experience.
+
+> [!WARNING]
+> Pancake is still in early development and does not currently work reliably in my VMs.
+> This will be fixed before the first official Pancake release, **v1**.
+>
+> Pancake is also **not part of the Abora OS ecosystem**. It is its own separate project.
 
 ---
 
 ## Status
 
-Early development. The compositor handles:
+Pancake currently supports:
 
-- XDG-shell toplevels (application windows) — map, raise, maximize, fullscreen, close
-- Popup tracking (tooltips, menus, dropdowns)
-- Keyboard and pointer input with click-to-focus
-- Window cycling with Super+Tab
-- XWayland for legacy X11 applications
-- Cascading window placement
-- Aero blur pipeline (GLSL shaders written, GPU FBO integration in progress)
+* XDG-shell application windows
+* Window mapping, raising, maximize, fullscreen, and close
+* Popup tracking
+* Keyboard and pointer input
+* Click-to-focus
+* `Super+Tab` window cycling
+* XWayland support
+* Basic cascading window placement
+* Winit backend for nested testing
+* DRM/KMS backend for real hardware
+* Early Aero blur shader work
 
-Both a udev/DRM backend (real hardware) and a Winit backend (nested, for development) are implemented.
-
----
-
-## Architecture
-
-```
-src/
-├── main.rs              Entry point, CLI args (--winit, --tty)
-├── state.rs             PancakeState — all compositor-wide state in one struct
-├── backend/
-│   ├── winit.rs         Nested backend: run inside an existing compositor
-│   └── udev.rs          Native backend: DRM/KMS + libinput + libseat
-├── handlers/
-│   ├── compositor.rs    wl_compositor — surface commit, buffer management
-│   ├── input.rs         Keyboard, pointer, and axis routing; keybindings
-│   ├── xdg_shell.rs     XDG-shell — toplevels, popups, maximize, fullscreen
-│   └── xwayland.rs      XWayland integration
-├── shell/
-│   └── layout.rs        Window placement (cascade; tiling engine planned)
-└── render/
-    └── aero.rs          Aero frosted-glass blur pipeline (dual-kawase GLSL)
-```
-
-### Aero blur pipeline
-
-Every translucent surface — panels, window decorations, popups — will show a real-time blurred copy of whatever is behind them. The technique is *dual-kawase*, the same algorithm used by KWin and Hyprland.
-
-```
-1. Render scene to OFFSCREEN_FBO (full res)
-2. Downsample  → BLUR_FBO_A (½ res)
-3. Dual-Kawase H-pass → BLUR_FBO_B
-4. Dual-Kawase V-pass → BLUR_FBO_A
-5. Upsample + blue-white tint → final output
-```
-
-The GLSL shaders are in [`src/render/aero.rs`](src/render/aero.rs). GPU FBO wiring is the next rendering milestone.
+The compositor is usable for testing, but not ready as a daily desktop.
 
 ---
 
 ## Building
 
-### Dependencies
+### Arch Linux
 
 ```sh
-# Arch Linux
 sudo pacman -S rust wayland libinput libdrm libgbm libseat libxkbcommon
+```
 
-# Debian / Ubuntu
+### Debian / Ubuntu
+
+```sh
 sudo apt install build-essential pkg-config rustup \
     libwayland-dev libinput-dev libdrm-dev libgbm-dev \
     libegl-dev libgles-dev libseat-dev libxkbcommon-dev \
     libudev-dev libpixman-1-dev libsystemd-dev
 ```
 
-Verify all libraries are present:
+Build Pancake:
 
 ```sh
-make deps
+make
 ```
 
-### Compile
+Debug build:
 
 ```sh
-make              # release build (default)
-make PROFILE=dev  # debug build
-make check        # type-check only (fast)
+make PROFILE=dev
+```
+
+Check only:
+
+```sh
+make check
 ```
 
 ---
 
 ## Running
 
-### Nested (development)
+### Nested
 
-Run Pancake as a window inside your existing desktop. No GPU access needed.
+Run Pancake inside your current desktop:
 
 ```sh
 make run-winit
-# or
-WAYLAND_DEBUG=0 ./target/release/pancake --winit
 ```
 
-Then launch a Wayland application into it:
+Launch an app inside it:
 
 ```sh
 WAYLAND_DISPLAY=wayland-pancake foot
 ```
 
-### Bare hardware (TTY)
+### Native
 
-Requires a free TTY, seatd or logind.
+Run Pancake from a TTY:
 
 ```sh
-# Switch to TTY2, ensure seatd is running, then:
 make run
-# or
+```
+
+Or:
+
+```sh
 ./target/release/pancake
 ```
-
-Force a specific TTY:
-
-```sh
-./target/release/pancake --tty 2
-```
-
-Environment variables:
-
-| Variable | Default | Description |
-|---|---|---|
-| `PANCAKE_TERMINAL` | `foot` | Terminal launched by Super+T |
-| `WAYLAND_DEBUG` | (unset) | Set to `1` for verbose Wayland protocol logging |
 
 ---
 
 ## Keybindings
 
-| Binding | Action |
-|---|---|
-| **Super+Q** | Close the focused window |
-| **Super+Escape** | Quit Pancake |
-| **Super+T** | Launch terminal (`$PANCAKE_TERMINAL`, default: `foot`) |
-| **Super+Tab** | Cycle window focus |
+| Binding        | Action               |
+| -------------- | -------------------- |
+| `Super+T`      | Open terminal        |
+| `Super+Q`      | Close focused window |
+| `Super+Tab`    | Cycle windows        |
+| `Super+Escape` | Quit Pancake         |
 
 ---
 
-## ISO / Distribution
+## ISO
 
-Pancake ships as its own Linux distribution on a **Debian Live** base. The legacy Arch Linux profile is kept under `iso/profile/` as a fallback.
+Pancake ships as its own Debian Live-based Linux distribution.
 
-### Build the Debian ISO
-
-Requires Docker or Podman. The build runs entirely inside a Debian container — no host pollution.
+Build the ISO:
 
 ```sh
-# One-time: install a container runtime (Arch hosts)
-sudo pacman -S docker
-sudo systemctl enable --now docker
-
-# Build
 sudo make iso
-
-# Output
-iso/out/debian/pancake-debian-YYYY.MM.DD-amd64.iso
-iso/out/debian/pancake-debian-latest.iso   ← symlink to latest
 ```
 
-The container installs a current Rust toolchain with `rustup`, builds Pancake inside Debian (so the binary matches the glibc/library versions), then runs `lb build`.
+Output:
 
-### Boot the live image
+```text
+iso/out/debian/pancake-debian-latest.iso
+```
+
+Run in QEMU:
 
 ```sh
-# QEMU/KVM (recommended for testing)
 qemu-system-x86_64 -enable-kvm -m 2G -cdrom iso/out/debian/pancake-debian-latest.iso
-
-# Real hardware
-sudo dd if=iso/out/debian/pancake-debian-latest.iso of=/dev/sdX bs=4M status=progress oflag=sync
 ```
 
-**VirtualBox:** Set the graphics controller to **VMSVGA** (not VBoxVGA) and allocate at least 128 MB video memory. If you see only a blank blue screen, wait 5 seconds for the GRUB menu to auto-select, or press Enter to boot immediately. If it stays blue, select **"Pancake Live (safe mode / VirtualBox)"** from the GRUB menu.
+Live ISO login:
 
-Log in as `root` — no password, just press Enter. The MOTD explains the commands.
-
-```sh
-start-pancake             # compositor only (blue background, use Super+T for terminal)
-start-pancake-terminal    # compositor + launches foot automatically after socket is ready
+```text
+user: root
+password: none
 ```
 
-Compositor logs: `/root/pancake.log`
-
-### Legacy Arch ISO
+Start Pancake:
 
 ```sh
-sudo pacman -S archiso
-sudo make iso-arch
-# Output: iso/out/arch/pancake-YYYY.MM.DD-x86_64.iso
+start-pancake
+```
+
+Or start Pancake with a terminal:
+
+```sh
+start-pancake-terminal
+```
+
+Logs:
+
+```text
+/root/pancake.log
 ```
 
 ---
 
-## Make targets
+## Make Targets
 
-```
-make [all]          Build release binary (default)
-make build          Same as above
-make PROFILE=dev    Build debug binary
-make check          Type-check only (no binary)
-make test           Run test suite
-make fmt            Format source with rustfmt
-make lint           Clippy with -D warnings
-make deps           Verify system libraries are present
-make run-winit      Run nested inside an existing compositor
-make run            Run on bare hardware
-make install        Install to PREFIX (default /usr/local)
-make uninstall      Remove installed binary
-make clean          Remove build artifacts
-make iso            Build Debian Live ISO (Docker/Podman)
-make iso-arch       Build legacy Arch Linux live ISO
-make iso-info       Show ISO file details
-make iso-clean      Remove ISO work and output directories
+```text
+make              Build release binary
+make check        Type-check only
+make test         Run tests
+make fmt          Format code
+make lint         Run Clippy
+make run-winit    Run nested backend
+make run          Run native backend
+make iso          Build Debian ISO
+make clean        Clean build files
 ```
 
 ---
 
 ## License
 
-GPL-3.0 — see [Cargo.toml](Cargo.toml).
+GPL-3.0
