@@ -1,7 +1,7 @@
 use smithay::{
     desktop::{PopupKind, Window},
     reexports::wayland_server::protocol::wl_seat::WlSeat,
-    utils::Serial,
+    utils::{Serial, SERIAL_COUNTER},
     wayland::{
         seat::WaylandFocus,
         shell::xdg::{
@@ -22,14 +22,30 @@ impl XdgShellHandler for PancakeState {
     // ── Toplevels (regular application windows) ─────────────────────────────
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
+        let geometry = layout::initial_geometry(&self.space);
+        tracing::info!(
+            "New XDG toplevel; mapping at {},{} size {}x{}",
+            geometry.loc.x,
+            geometry.loc.y,
+            geometry.size.w,
+            geometry.size.h
+        );
         surface.with_pending_state(|state| {
             state.states.set(xdg_toplevel::State::Activated);
+            state.size = Some(geometry.size);
         });
         surface.send_configure();
 
+        let focus_surface = surface.wl_surface().clone();
         let window = Window::new_wayland_window(surface);
-        let pos = layout::initial_position(&self.space);
-        self.space.map_element(window, pos, true);
+        self.space.map_element(window.clone(), geometry.loc, true);
+        self.space.raise_element(&window, true);
+
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            keyboard.set_focus(self, Some(focus_surface), SERIAL_COUNTER.next_serial());
+        }
+        self.focused_window = Some(window);
+        tracing::info!("Mapped XDG toplevel; space now has {} windows", self.space.elements().count());
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {

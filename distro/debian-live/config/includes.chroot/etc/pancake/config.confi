@@ -1,0 +1,30 @@
+# Pancake compositor config — Syrup native format
+# !lang syrup
+#
+# Reload at runtime: kill -HUP $(pgrep pancake)
+#
+# Supported languages:
+#   !lang syrup    (default, this file)
+#   !lang lua      (return a nested table)
+#   !lang cpp      (C++ style typed assignments)
+#   !lang csharp   (C# style typed assignments)
+
+compositor {
+    terminal        = "foot"
+    blur_passes     = 4
+    blur_downsample = 2
+    tint            = [0.55, 0.70, 1.00, 0.18]
+    # wallpaper     = "/usr/share/pancake/walls/aero-default.jpg"
+}
+
+keybinds {
+    terminal = "Super+T"
+    close    = "Super+Q"
+    quit     = "Super+Escape"
+    cycle    = "Super+Tab"
+}
+
+startup {
+    # Additional apps launched after waybar and foot
+    # apps = ["dunst", "nm-applet"]
+}

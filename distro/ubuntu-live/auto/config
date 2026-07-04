@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+lb config noauto \
+  --mode ubuntu \
+  --distribution noble \
+  --archive-areas "main restricted universe multiverse" \
+  --mirror-bootstrap "http://archive.ubuntu.com/ubuntu/" \
+  --mirror-chroot "http://archive.ubuntu.com/ubuntu/" \
+  --mirror-binary "http://archive.ubuntu.com/ubuntu/" \
+  --binary-images iso-hybrid \
+  --syslinux-theme live-build \
+  --bootappend-live "components live-media=/dev/sr0 live-media-path=casper systemd.show_status=yes loglevel=4 live-config.username=root live-config.user-default-groups=root,seat,tty,video,render,input video=Virtual-1:1280x800@60 video=QXL-1:1280x800@60 video=VGA-1:1280x800@60" \
+  --iso-application "Pancake Desktop Environment Live" \
+  --iso-publisher "Pancake DE" \
+  --iso-volume "PANCAKE_UBUNTU" \
+  "${@}"

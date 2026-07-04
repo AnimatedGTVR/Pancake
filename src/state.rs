@@ -1,8 +1,8 @@
 use std::os::unix::io::OwnedFd;
 
 use smithay::{
-    delegate_compositor, delegate_data_device, delegate_output, delegate_seat, delegate_shm,
-    delegate_xdg_shell,
+    delegate_compositor, delegate_data_device, delegate_layer_shell, delegate_output, delegate_seat,
+    delegate_shm, delegate_xdg_shell,
     desktop::{PopupManager, Space, Window},
     input::{Seat, SeatState},
     reexports::wayland_server::{
@@ -10,6 +10,7 @@ use smithay::{
         protocol::wl_buffer,
         Display, DisplayHandle,
     },
+    utils::{Logical, Point},
     wayland::{
         buffer::BufferHandler,
         compositor::{CompositorClientState, CompositorState},
@@ -20,7 +21,7 @@ use smithay::{
             },
             SelectionHandler,
         },
-        shell::xdg::XdgShellState,
+        shell::{wlr_layer::WlrLayerShellState, xdg::XdgShellState},
         shm::{ShmHandler, ShmState},
     },
     xwayland::xwm::X11Wm,
@@ -54,6 +55,7 @@ pub struct PancakeState {
 
     // XDG shell (application windows)
     pub xdg_shell_state: XdgShellState,
+    pub layer_shell_state: WlrLayerShellState,
     pub popup_manager: PopupManager,
 
     // Input
@@ -77,6 +79,10 @@ pub struct PancakeState {
 
     // Currently focused window, tracked for Super+Tab cycling.
     pub focused_window: Option<Window>,
+
+    // Current pointer position (logical coordinates). Updated in PointerMotion
+    // handler and read by the render backends to draw the cursor sprite.
+    pub cursor_pos: Point<f64, Logical>,
 }
 
 impl PancakeState {
@@ -87,6 +93,7 @@ impl PancakeState {
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
+        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
 
         let mut seat_state = SeatState::new();
@@ -105,6 +112,7 @@ impl PancakeState {
             shm_state,
             output_manager_state,
             xdg_shell_state,
+            layer_shell_state,
             popup_manager: PopupManager::default(),
             seat_state,
             seat,
@@ -114,6 +122,7 @@ impl PancakeState {
             renderer,
             config,
             focused_window: None,
+            cursor_pos: (0.0, 0.0).into(),
         }
     }
 
@@ -203,5 +212,6 @@ delegate_compositor!(PancakeState);
 delegate_xdg_shell!(PancakeState);
 delegate_shm!(PancakeState);
 delegate_output!(PancakeState);
+delegate_layer_shell!(PancakeState);
 delegate_seat!(PancakeState);
 delegate_data_device!(PancakeState);

@@ -8,6 +8,7 @@ mod handlers;
 mod render;
 mod shell;
 mod state;
+mod syrup;
 
 /// Pancake — the Sweetest, Smoothest Desktop Environment
 #[derive(Debug, Parser)]

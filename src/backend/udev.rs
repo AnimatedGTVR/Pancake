@@ -3,7 +3,7 @@
 /// Launch: `pancake` (or `pancake --tty 2`)
 ///
 /// Requires a libseat session (logind or seatd running).
-use std::{process::Command, sync::Arc};
+use std::{fs::OpenOptions, process::Command, sync::Arc, time::Duration};
 
 use smithay::{
     backend::{
@@ -11,7 +11,10 @@ use smithay::{
         session::{libseat::LibSeatSession, Event as SessionEvent, Session},
         udev::{UdevBackend, UdevEvent},
     },
-    reexports::calloop::EventLoop,
+    reexports::calloop::{
+        timer::{TimeoutAction, Timer},
+        EventLoop,
+    },
     reexports::wayland_server::Display,
     wayland::compositor::{with_surface_tree_downward, SurfaceAttributes, TraversalAction},
 };
@@ -82,6 +85,7 @@ pub fn run(tty: Option<u8>) -> Result<(), Box<dyn std::error::Error>> {
 
                 // Map all outputs from this GPU into the compositor space.
                 for out_state in &gpu_data.outputs {
+                    out_state.output.create_global::<PancakeState>(&display.handle());
                     pancake.space.map_output(&out_state.output, (0, 0));
                 }
 
@@ -112,6 +116,19 @@ pub fn run(tty: Option<u8>) -> Result<(), Box<dyn std::error::Error>> {
         },
     )?;
 
+    // Early Pancake does not yet have fine-grained damage scheduling. Keep a
+    // gentle repaint tick so clients that map after the first DRM frame become
+    // visible without waiting for another external event.
+    event_loop.handle().insert_source(
+        Timer::from_duration(Duration::from_millis(16)),
+        |_, _, state: &mut State| {
+            for gpu in &mut state.gpus {
+                gpu.render_all(&state.pancake);
+            }
+            TimeoutAction::ToDuration(Duration::from_millis(16))
+        },
+    )?;
+
     // ── Wayland socket ────────────────────────────────────────────────────────
     let listener = ListeningSocket::bind_auto("wayland", 1..33)?;
     let socket_name = listener
@@ -123,11 +140,7 @@ pub fn run(tty: Option<u8>) -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Pancake running (udev/DRM). Super+Escape to quit.");
 
-    let mut state = State {
-        pancake,
-        gpus,
-        startup_terminal_spawned: false,
-    };
+    let mut state = State { pancake, gpus };
 
     if state.gpus.iter().all(|gpu| gpu.outputs.is_empty()) {
         return Err("no active DRM outputs were found".into());
@@ -138,15 +151,24 @@ pub fn run(tty: Option<u8>) -> Result<(), Box<dyn std::error::Error>> {
         gpu.render_all(&state.pancake);
     }
 
-    event_loop.run(None, &mut state, |state| {
-        if !state.startup_terminal_spawned {
-            spawn_startup_terminal(socket_name);
-            state.startup_terminal_spawned = true;
-        }
+    spawn_wayland_client(
+        "PANCAKE_STARTUP_TERMINAL",
+        "foot",
+        "/tmp/foot.log",
+        socket_name,
+    );
+    spawn_wayland_client(
+        "PANCAKE_STARTUP_WAYBAR",
+        "waybar",
+        "/tmp/waybar.log",
+        socket_name,
+    );
 
+    event_loop.run(None, &mut state, |state| {
         state.pancake.maybe_reload_config();
 
         while let Some(stream) = listener.accept().ok().flatten() {
+            info!("Accepted Wayland client on {socket_name}");
             display
                 .handle()
                 .insert_client(stream, Arc::new(ClientState::default()))
@@ -167,27 +189,41 @@ pub fn run(tty: Option<u8>) -> Result<(), Box<dyn std::error::Error>> {
 struct State {
     pancake: PancakeState,
     gpus: Vec<GpuData>,
-    startup_terminal_spawned: bool,
 }
 
 use input;
 
-fn spawn_startup_terminal(socket_name: &str) {
-    if std::env::var_os("PANCAKE_STARTUP_TERMINAL").is_none() {
-        info!("PANCAKE_STARTUP_TERMINAL is not set; not starting foot");
+fn spawn_wayland_client(env_flag: &str, command_name: &str, log_path: &str, socket_name: &str) {
+    if std::env::var_os(env_flag).is_none() {
+        info!("{env_flag} is not set; not starting {command_name}");
         return;
     }
 
-    match Command::new("foot")
+    let client_log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .ok();
+
+    let mut command = Command::new(command_name);
+    command
         .env("WAYLAND_DISPLAY", socket_name)
         .env(
             "XDG_RUNTIME_DIR",
             std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/0".to_string()),
-        )
-        .spawn()
+        );
+
+    if let Some(log) = client_log {
+        if let Ok(stderr) = log.try_clone() {
+            command.stderr(stderr);
+        }
+        command.stdout(log);
+    }
+
+    match command.spawn()
     {
-        Ok(_) => info!("Started startup terminal: foot"),
-        Err(err) => warn!("Failed to start startup terminal foot: {err}"),
+        Ok(_) => info!("Started startup Wayland client: {command_name}"),
+        Err(err) => warn!("Failed to start startup Wayland client {command_name}: {err}"),
     }
 }
 

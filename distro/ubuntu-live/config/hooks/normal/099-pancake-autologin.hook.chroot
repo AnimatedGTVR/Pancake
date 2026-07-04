@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+# Ensure the seat group exists and add both root and user to it.
+# seatd uses -g seat so members of that group can open sessions.
+groupadd -f seat || true
+usermod -aG seat root 2>/dev/null || true
+usermod -aG seat user 2>/dev/null || true
+usermod -aG video,render,input,tty root 2>/dev/null || true
+usermod -aG video,render,input,tty user 2>/dev/null || true
+
+# Force root autologin on TTY1 — runs after live-config so it wins.
+mkdir -p /etc/systemd/system/getty@tty1.service.d
+cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf << 'UNIT'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+UNIT
+
+systemctl disable getty@tty1.service || true
+systemctl enable seatd.service    || true
+systemctl enable pancake-xdg-runtime.service || true
+systemctl enable pancake-live.service || true

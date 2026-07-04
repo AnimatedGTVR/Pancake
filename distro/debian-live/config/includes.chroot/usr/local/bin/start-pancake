@@ -9,6 +9,13 @@ export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
+# Deploy default Pancake config if user doesn't already have one
+PANCAKE_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/pancake"
+mkdir -p "$PANCAKE_CFG_DIR"
+if [ ! -f "$PANCAKE_CFG_DIR/config.confi" ] && [ -f /etc/pancake/config.confi ]; then
+    cp /etc/pancake/config.confi "$PANCAKE_CFG_DIR/config.confi"
+fi
+
 # Start seatd if not already running
 if command -v systemctl >/dev/null 2>&1; then
     systemctl is-active --quiet seatd.service 2>/dev/null \

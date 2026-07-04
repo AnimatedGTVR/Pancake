@@ -105,6 +105,9 @@ impl PancakeState {
                     let current = pointer.current_location();
                     let delta: Point<f64, Logical> = (event.delta_x(), event.delta_y()).into();
                     let new_pos = current + delta;
+                    // Clamp to output bounds so the cursor can't escape the screen
+                    let new_pos = Self::clamp_cursor_to_output(&self.space, new_pos);
+                    self.cursor_pos = new_pos;
                     let focus = self.surface_under(new_pos);
                     pointer.motion(
                         self,
@@ -186,6 +189,24 @@ impl PancakeState {
 
             _ => {}
         }
+    }
+
+    /// Clamp `pos` to the union of all mapped output rects.
+    #[allow(dead_code)]
+    fn clamp_cursor_to_output(space: &smithay::desktop::Space<smithay::desktop::Window>, pos: Point<f64, Logical>) -> Point<f64, Logical> {
+        let mut x0 = 0.0f64;
+        let mut y0 = 0.0f64;
+        let mut x1 = 1.0f64;
+        let mut y1 = 1.0f64;
+        for output in space.outputs() {
+            if let Some(geo) = space.output_geometry(output) {
+                x0 = x0.min(geo.loc.x as f64);
+                y0 = y0.min(geo.loc.y as f64);
+                x1 = x1.max((geo.loc.x + geo.size.w) as f64);
+                y1 = y1.max((geo.loc.y + geo.size.h) as f64);
+            }
+        }
+        Point::from((pos.x.clamp(x0, x1 - 1.0), pos.y.clamp(y0, y1 - 1.0)))
     }
 
     /// Topmost Wayland surface under `point` and its local pixel offset.

@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export RUST_LOG="${RUST_LOG:-pancake=warn,smithay=warn}"
+export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
+export SEATD_SOCK="${SEATD_SOCK:-/run/seatd.sock}"
+
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+
+# Deploy default Pancake config if user doesn't already have one
+PANCAKE_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/pancake"
+mkdir -p "$PANCAKE_CFG_DIR"
+if [ ! -f "$PANCAKE_CFG_DIR/config.confi" ] && [ -f /etc/pancake/config.confi ]; then
+    cp /etc/pancake/config.confi "$PANCAKE_CFG_DIR/config.confi"
+fi
+
+printf '\033c'
+printf 'Pancake live session\n'
+printf '====================\n\n'
+
+dump_drm_debug() {
+    {
+        printf '== command line ==\n'
+        cat /proc/cmdline 2>/dev/null || true
+        printf '\n== drm modules ==\n'
+        lsmod 2>/dev/null | grep -E '^(virtio_gpu|qxl|bochs|vmwgfx|drm|drm_kms_helper)' || true
+        printf '\n== drm devices ==\n'
+        ls -l /dev/dri 2>/dev/null || true
+        printf '\n== sysfs drm connectors ==\n'
+        for status in /sys/class/drm/*/status; do
+            [ -e "$status" ] || continue
+            connector="${status%/status}"
+            printf '%s: ' "${connector##*/}"
+            cat "$status" 2>/dev/null || true
+            modes="${connector}/modes"
+            if [ -r "$modes" ]; then
+                sed 's/^/  mode: /' "$modes" 2>/dev/null || true
+            fi
+        done
+        printf '\n== seatd ==\n'
+        ls -l "$SEATD_SOCK" 2>/dev/null || true
+        tail -40 /tmp/seatd.log 2>/dev/null || true
+        printf '\n== foot ==\n'
+        tail -80 /tmp/foot.log 2>/dev/null || true
+        printf '\n== waybar ==\n'
+        tail -80 /tmp/waybar.log 2>/dev/null || true
+    } > /tmp/pancake-drm-debug.txt
+}
+
+if grep -qw 'pancake.debug_shell=1' /proc/cmdline; then
+    printf 'Failsafe debug mode: not starting Pancake automatically.\n'
+    printf 'Diagnostics: /tmp/pancake-drm-debug.txt\n\n'
+    dump_drm_debug
+    cat /tmp/pancake-drm-debug.txt
+    printf '\nDebug shell. Try: start-pancake-terminal or pancake --tty 1\n'
+    exec sh
+fi
+
+# Start seatd if not already running. The live image runs as root on tty1, but
+# libseat still needs the seatd socket to exist before Pancake starts.
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl is-active --quiet seatd.service 2>/dev/null \
+        || systemctl start seatd.service 2>/dev/null \
+        || true
+fi
+
+if [ ! -S "$SEATD_SOCK" ] && command -v seatd >/dev/null 2>&1; then
+    seatd -g video >/tmp/seatd.log 2>&1 &
+fi
+
+for _ in $(seq 1 50); do
+    [ -S "$SEATD_SOCK" ] && break
+    sleep 0.1
+done
+
+printf 'Starting Pancake...\n'
+printf 'Logs: /tmp/pancake.log\n\n'
+
+# Let the DRM backend launch the first terminal after it has created the
+# Wayland socket. If Pancake exits, leave the log visible on the TTY.
+if ! command -v pancake >/dev/null 2>&1; then
+    printf 'ERROR: /usr/local/bin/pancake is missing from the live image.\n'
+    exec sh
+fi
+
+PANCAKE_STARTUP_TERMINAL=1 PANCAKE_STARTUP_WAYBAR=1 pancake --tty 1 > /tmp/pancake.log 2>&1 || true
+dump_drm_debug
+
+printf '\nPancake exited. Last log lines:\n\n'
+tail -80 /tmp/pancake.log 2>/dev/null || true
+printf '\nDropping to a debug shell. Try: less /tmp/pancake.log or cat /tmp/pancake-drm-debug.txt\n'
+exec sh

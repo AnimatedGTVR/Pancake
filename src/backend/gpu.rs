@@ -17,7 +17,14 @@ use smithay::{
             DrmDevice, DrmDeviceFd, DrmDeviceNotifier, DrmNode,
         },
         egl::{EGLContext, EGLDisplay},
-        renderer::{gles::GlesRenderer, Color32F, ImportDma},
+        renderer::{
+            element::{
+                texture::{TextureBuffer, TextureRenderElement},
+                Kind,
+            },
+            gles::{GlesRenderer, GlesTexture},
+            Color32F, ImportDma, ImportMem,
+        },
         session::Session,
     },
     output::{Mode as SmithayMode, Output, PhysicalProperties, Subpixel},
@@ -25,10 +32,14 @@ use smithay::{
         drm::control::{connector, crtc, Device as ControlDevice, ModeTypeFlags},
         rustix::fs::OFlags,
     },
-    utils::{DeviceFd, Transform},
+    utils::{DeviceFd, Scale, Transform},
 };
 use tracing::{error, info, warn};
 
+use crate::render::{
+    cursor,
+    PancakeElements,
+};
 use crate::state::PancakeState;
 
 // ── Type alias for our DrmCompositor ─────────────────────────────────────────
@@ -54,6 +65,10 @@ pub struct GpuData {
     pub renderer: GlesRenderer,
     pub outputs: Vec<OutputState>,
     pub node: DrmNode,
+    /// Cursor texture buffer — passed as a render element into render_frame each frame.
+    pub cursor_buffer: Option<TextureBuffer<GlesTexture>>,
+    /// Hotspot offset of the cursor image in logical pixels.
+    pub cursor_hotspot: (u32, u32),
 }
 
 impl GpuData {
@@ -88,7 +103,7 @@ impl GpuData {
         // ── EGL + GLES ───────────────────────────────────────────────────────
         let egl_display = unsafe { EGLDisplay::new(gbm.clone())? };
         let egl_ctx = EGLContext::new(&egl_display)?;
-        let renderer = unsafe { GlesRenderer::new(egl_ctx)? };
+        let mut renderer = unsafe { GlesRenderer::new(egl_ctx)? };
 
         // ── Enumerate connectors ─────────────────────────────────────────────
         let resources = drm.resource_handles()?;
@@ -96,7 +111,7 @@ impl GpuData {
         let mut outputs: Vec<OutputState> = Vec::new();
 
         for &conn_handle in resources.connectors() {
-            let conn = match drm.get_connector(conn_handle, false) {
+            let conn = match drm.get_connector(conn_handle, true) {
                 Ok(c) => c,
                 Err(e) => {
                     warn!("Failed to get connector info: {e}");
@@ -105,6 +120,12 @@ impl GpuData {
             };
 
             if conn.state() != connector::State::Connected {
+                info!(
+                    "Connector {:?}-{} is {:?}; skipping",
+                    conn.interface(),
+                    conn.interface_id(),
+                    conn.state()
+                );
                 continue;
             }
 
@@ -227,6 +248,22 @@ impl GpuData {
             warn!("GPU {:?}: no active outputs found", path);
         }
 
+        // Import cursor image as a texture buffer for render-element cursor rendering
+        let cursor_img = cursor::load_default();
+        let cursor_hotspot = (cursor_img.hot_x, cursor_img.hot_y);
+        let cursor_buffer: Option<TextureBuffer<GlesTexture>> =
+            renderer.import_memory(
+                &cursor_img.pixels,
+                smithay::backend::allocator::Fourcc::Abgr8888,
+                (cursor_img.width as i32, cursor_img.height as i32).into(),
+                false,
+            )
+            .ok()
+            .map(|tex| TextureBuffer::from_texture(&renderer, tex, 1, Transform::Normal, None));
+        if cursor_buffer.is_none() {
+            warn!("GPU {:?}: cursor texture import failed; no cursor will be rendered", path);
+        }
+
         Ok((
             GpuData {
                 drm,
@@ -234,6 +271,8 @@ impl GpuData {
                 renderer,
                 outputs,
                 node: drm_node,
+                cursor_buffer,
+                cursor_hotspot,
             },
             notifier,
         ))
@@ -241,28 +280,55 @@ impl GpuData {
 
     /// Render one frame on every output.
     pub fn render_all(&mut self, state: &PancakeState) {
-        let clear = Color32F::new(0.14, 0.28, 0.48, 1.0);
+        let clear = Color32F::new(0.07, 0.10, 0.20, 1.0);
+
+        // Build cursor element once — reused for each output
+        let cursor_elem: Option<TextureRenderElement<GlesTexture>> =
+            self.cursor_buffer.as_ref().map(|buf| {
+                // Subtract hotspot so the visual tip lands at the pointer position
+                let hot = self.cursor_hotspot;
+                let x = state.cursor_pos.x - hot.0 as f64;
+                let y = state.cursor_pos.y - hot.1 as f64;
+                let phys = smithay::utils::Point::<f64, smithay::utils::Physical>::from((x, y));
+                TextureRenderElement::from_texture_buffer(
+                    phys,
+                    buf,
+                    None,
+                    None,
+                    None,
+                    Kind::Cursor,
+                )
+            });
 
         for out_state in &mut self.outputs {
-            // Pancake is still early compositor code. Force a full primary-plane
-            // repaint and disable direct scanout/overlay assignment until output
-            // damage tracking is mature. This avoids VM/DRM partial-update paths
-            // that can present only a horizontal band or a stale black buffer.
             if let Err(e) = out_state.compositor.reset_state() {
                 warn!("failed to force full DRM repaint: {e}");
             }
 
-            let elements = match state.space.render_elements_for_output(
+            // Collect space elements (windows, popups)
+            let space_elements: Vec<smithay::desktop::space::SpaceRenderElements<
+                GlesRenderer,
+                smithay::wayland::compositor::WaylandSurfaceRenderElement<GlesRenderer>,
+            >> = match state.space.render_elements_for_output(
                 &mut self.renderer,
                 &out_state.output,
                 1.0,
             ) {
-                Ok(elements) => elements,
+                Ok(e) => e,
                 Err(err) => {
-                    warn!("failed to collect render elements for output: {err}");
+                    warn!("failed to collect render elements: {err}");
                     Vec::new()
                 }
             };
+
+            // Wrap in PancakeElements and append cursor on top
+            let mut all: Vec<PancakeElements> = space_elements
+                .into_iter()
+                .map(PancakeElements::Space)
+                .collect();
+            if let Some(ref ce) = cursor_elem {
+                all.push(PancakeElements::Cursor(ce.clone()));
+            }
 
             let frame_flags = if std::env::var_os("PANCAKE_DRM_ALLOW_SCANOUT").is_some() {
                 FrameFlags::DEFAULT
@@ -272,7 +338,7 @@ impl GpuData {
 
             match out_state.compositor.render_frame(
                 &mut self.renderer,
-                &elements,
+                &all,
                 clear,
                 frame_flags,
             ) {
@@ -280,26 +346,19 @@ impl GpuData {
                     out_state.frame_seq = out_state.frame_seq.saturating_add(1);
                     if out_state.frame_seq <= 3 {
                         info!(
-                            "Queued DRM frame {} for {}x{} output with {} surface elements; scanout_allowed={}",
+                            "Queued DRM frame {} for {}x{} output ({} elements, cursor={})",
                             out_state.frame_seq,
                             out_state.size.0,
                             out_state.size.1,
-                            elements.len(),
-                            std::env::var_os("PANCAKE_DRM_ALLOW_SCANOUT").is_some()
+                            all.len(),
+                            cursor_elem.is_some(),
                         );
                     }
                     if let Err(e) = out_state.compositor.queue_frame(()) {
                         error!("queue_frame failed: {e}");
                     }
                 }
-                Ok(_) => {
-                    warn!(
-                        "DRM render produced an empty frame for {}x{} output with {} surface elements",
-                        out_state.size.0,
-                        out_state.size.1,
-                        elements.len()
-                    );
-                }
+                Ok(_) => {}
                 Err(e) => error!("render_frame failed: {e}"),
             }
         }

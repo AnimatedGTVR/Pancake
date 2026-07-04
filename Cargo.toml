@@ -45,6 +45,15 @@ serde = { version = "1", features = ["derive"] }
 toml  = "0.8"
 libc  = "0.2"
 
+# Cursor rendering
+xcursor = "0.3"
+
+# Wallpaper loading
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp", "gif"] }
+
+# Syrup config — Lua frontend
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+
 [profile.release]
 opt-level     = 3
 lto           = "thin"

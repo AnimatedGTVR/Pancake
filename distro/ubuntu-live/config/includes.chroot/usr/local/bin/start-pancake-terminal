@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export RUST_LOG="${RUST_LOG:-pancake=debug,smithay=warn}"
+export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
+export SEATD_SOCK="${SEATD_SOCK:-/run/seatd.sock}"
+
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl is-active --quiet seatd.service 2>/dev/null \
+        || systemctl start seatd.service 2>/dev/null \
+        || true
+fi
+
+if [ ! -S "$SEATD_SOCK" ] && command -v seatd >/dev/null 2>&1; then
+    seatd -g video >/tmp/seatd.log 2>&1 &
+fi
+
+for _ in $(seq 1 50); do
+    [ -S "$SEATD_SOCK" ] && break
+    sleep 0.1
+done
+
+: > /tmp/pancake.log
+echo "Starting Pancake + foot terminal" | tee -a /tmp/pancake.log
+echo "Logs: /tmp/pancake.log"
+echo ""
+
+# Start compositor in background so we can spawn foot after the socket appears
+pancake --tty 1 >> /tmp/pancake.log 2>&1 &
+PANCAKE_PID=$!
+
+# Wait up to 10 seconds for the Wayland socket to appear
+SOCKET="$XDG_RUNTIME_DIR/wayland-0"
+for i in $(seq 1 20); do
+    if [ -S "$SOCKET" ]; then
+        break
+    fi
+    sleep 0.5
+done
+
+if [ -S "$SOCKET" ]; then
+    echo "Socket ready — launching foot" | tee -a /tmp/pancake.log
+    WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" foot &
+else
+    echo "WARNING: Wayland socket not found after 10s. Check /tmp/pancake.log" | tee -a /tmp/pancake.log
+fi
+
+# Stay alive until the compositor exits
+wait "$PANCAKE_PID" || true

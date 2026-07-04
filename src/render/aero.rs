@@ -18,6 +18,7 @@ use std::time::Instant;
 use tracing::error;
 
 use crate::config::Config;
+use std::path::PathBuf;
 
 /// Default tint layered over the blurred gradient (RGBA, linear).
 const DEFAULT_TINT: [f32; 4] = [0.55, 0.70, 1.00, 0.18];
@@ -96,6 +97,18 @@ void main() {
 }
 "#;
 
+// ── Wallpaper blit into scene_fbo (replaces animated gradient when set) ──────
+
+const WALLPAPER_FRAG: &str = r#"
+#version 100
+precision mediump float;
+uniform sampler2D u_tex;
+varying vec2 v_uv;
+void main() {
+    gl_FragColor = texture2D(u_tex, vec2(v_uv.x, 1.0 - v_uv.y));
+}
+"#;
+
 // ── Final blit: blurred texture + Aero tint ──────────────────────────────────
 
 const BLIT_FRAG: &str = r#"
@@ -122,7 +135,7 @@ type Loc = ffi::types::GLint;
 // ── GPU resource bundle ───────────────────────────────────────────────────────
 
 struct AeroGl {
-    // Source FBO (full resolution): procedural gradient is rendered here
+    // Source FBO (full resolution): gradient or wallpaper is rendered here
     scene_fbo: Fbo,
     scene_tex: Tex,
     // Ping-pong blur FBOs (half resolution)
@@ -131,28 +144,32 @@ struct AeroGl {
     blur_b_fbo: Fbo,
     blur_b_tex: Tex,
     // Shader programs
-    bg_prg:   Prg,
-    down_prg: Prg,
-    up_prg:   Prg,
-    blit_prg: Prg,
+    bg_prg:        Prg,  // animated gradient
+    wallpaper_prg: Prg,  // static wallpaper blit
+    down_prg:      Prg,
+    up_prg:        Prg,
+    blit_prg:      Prg,
     // Full-screen quad VBO (NDC triangle strip, 4 × vec2)
     quad_vbo: Buf,
     // Cached uniform locations
-    bg_u_time:   Loc,
-    down_u_tex:  Loc,
-    down_u_hp:   Loc,
-    up_u_tex:    Loc,
-    up_u_hp:     Loc,
-    blit_u_tex:  Loc,
-    blit_u_tint: Loc,
+    bg_u_time:       Loc,
+    wp_u_tex:        Loc,  // wallpaper shader
+    down_u_tex:      Loc,
+    down_u_hp:       Loc,
+    up_u_tex:        Loc,
+    up_u_hp:         Loc,
+    blit_u_tex:      Loc,
+    blit_u_tint:     Loc,
     // Output and blur dimensions
     w: u32,
     h: u32,
     blur_w: u32,
     blur_h: u32,
-    // Runtime blur settings (baked in at FBO creation time)
+    // Runtime blur settings
     blur_passes: usize,
     tint: [f32; 4],
+    // Wallpaper GL texture (0 = none, use animated gradient)
+    wallpaper_tex: Tex,
 }
 
 // ── Public AeroRenderer ───────────────────────────────────────────────────────
@@ -166,6 +183,10 @@ pub struct AeroRenderer {
     cfg_passes: usize,
     cfg_downsample: u32,
     cfg_tint: [f32; 4],
+    // Wallpaper: decoded RGBA bytes cached to survive gl invalidation
+    cfg_wallpaper: Option<PathBuf>,
+    wallpaper_rgba: Option<Vec<u8>>,
+    wallpaper_wh: (u32, u32),
 }
 
 impl Default for AeroRenderer {
@@ -178,6 +199,9 @@ impl Default for AeroRenderer {
             cfg_passes: DEFAULT_PASSES,
             cfg_downsample: DEFAULT_DOWNSAMPLE,
             cfg_tint: DEFAULT_TINT,
+            cfg_wallpaper: None,
+            wallpaper_rgba: None,
+            wallpaper_wh: (0, 0),
         }
     }
 }
@@ -186,13 +210,25 @@ impl AeroRenderer {
     /// Apply config values. If any blur parameter changed, invalidates the GPU
     /// resources so they are re-created on the next `begin_frame` call.
     pub fn apply_config(&mut self, config: &Config) {
-        let changed = self.cfg_passes != config.blur_passes
+        let mut changed = self.cfg_passes != config.blur_passes
             || self.cfg_downsample != config.blur_downsample
             || self.cfg_tint != config.tint;
 
         self.cfg_passes = config.blur_passes;
         self.cfg_downsample = config.blur_downsample;
         self.cfg_tint = config.tint;
+
+        // Reload wallpaper pixels if the path changed
+        if self.cfg_wallpaper != config.wallpaper {
+            self.cfg_wallpaper = config.wallpaper.clone();
+            self.wallpaper_rgba = config.wallpaper.as_ref().and_then(|p| {
+                load_wallpaper_rgba(p)
+                    .map(|(pixels, w, h)| { self.wallpaper_wh = (w, h); pixels })
+                    .map_err(|e| { error!("Wallpaper load error: {e}"); e })
+                    .ok()
+            });
+            changed = true;
+        }
 
         if changed {
             self.gl = None;
@@ -227,8 +263,10 @@ impl AeroRenderer {
                 self.cfg_downsample,
                 self.cfg_tint,
             );
+            let wp_rgba  = self.wallpaper_rgba.clone();
+            let wp_wh    = self.wallpaper_wh;
             match renderer.with_context(|gl| unsafe {
-                init_gl(gl, w, h, downsample, passes, tint)
+                init_gl(gl, w, h, downsample, passes, tint, wp_rgba.as_deref(), wp_wh)
             }) {
                 Ok(Ok(res)) => self.gl = Some(res),
                 Ok(Err(msg)) => {
@@ -386,6 +424,8 @@ unsafe fn init_gl(
     downsample: u32,
     blur_passes: usize,
     tint: [f32; 4],
+    wallpaper_rgba: Option<&[u8]>,
+    wallpaper_wh:   (u32, u32),
 ) -> Result<AeroGl, String> {
     let blur_w = (w / downsample.max(1)).max(1);
     let blur_h = (h / downsample.max(1)).max(1);
@@ -394,10 +434,11 @@ unsafe fn init_gl(
     let (blur_a_fbo, blur_a_tex) = make_fbo(gl, blur_w, blur_h)?;
     let (blur_b_fbo, blur_b_tex) = make_fbo(gl, blur_w, blur_h)?;
 
-    let bg_prg   = link_prog(gl, QUAD_VERT, BG_FRAG)?;
-    let down_prg = link_prog(gl, QUAD_VERT, DOWN_FRAG)?;
-    let up_prg   = link_prog(gl, QUAD_VERT, UP_FRAG)?;
-    let blit_prg = link_prog(gl, QUAD_VERT, BLIT_FRAG)?;
+    let bg_prg        = link_prog(gl, QUAD_VERT, BG_FRAG)?;
+    let wallpaper_prg = link_prog(gl, QUAD_VERT, WALLPAPER_FRAG)?;
+    let down_prg      = link_prog(gl, QUAD_VERT, DOWN_FRAG)?;
+    let up_prg        = link_prog(gl, QUAD_VERT, UP_FRAG)?;
+    let blit_prg      = link_prog(gl, QUAD_VERT, BLIT_FRAG)?;
 
     // Full-screen NDC triangle strip: BL, BR, TL, TR
     let quad: [f32; 8] = [-1.0, -1.0,  1.0, -1.0,  -1.0, 1.0,  1.0, 1.0];
@@ -412,22 +453,46 @@ unsafe fn init_gl(
     );
     gl.BindBuffer(ffi::ARRAY_BUFFER, 0);
 
+    // Upload wallpaper texture if provided
+    let wallpaper_tex: Tex = if let Some(rgba) = wallpaper_rgba {
+        let (ww, wh) = wallpaper_wh;
+        if ww > 0 && wh > 0 {
+            let mut tex: Tex = 0;
+            gl.GenTextures(1, &mut tex);
+            gl.BindTexture(ffi::TEXTURE_2D, tex);
+            gl.TexImage2D(
+                ffi::TEXTURE_2D, 0, ffi::RGBA as _,
+                ww as _, wh as _, 0,
+                ffi::RGBA, ffi::UNSIGNED_BYTE,
+                rgba.as_ptr() as *const _,
+            );
+            gl.TexParameteri(ffi::TEXTURE_2D, ffi::TEXTURE_MIN_FILTER, ffi::LINEAR as _);
+            gl.TexParameteri(ffi::TEXTURE_2D, ffi::TEXTURE_MAG_FILTER, ffi::LINEAR as _);
+            gl.TexParameteri(ffi::TEXTURE_2D, ffi::TEXTURE_WRAP_S, ffi::CLAMP_TO_EDGE as _);
+            gl.TexParameteri(ffi::TEXTURE_2D, ffi::TEXTURE_WRAP_T, ffi::CLAMP_TO_EDGE as _);
+            gl.BindTexture(ffi::TEXTURE_2D, 0);
+            tex
+        } else { 0 }
+    } else { 0 };
+
     Ok(AeroGl {
         scene_fbo, scene_tex,
         blur_a_fbo, blur_a_tex,
         blur_b_fbo, blur_b_tex,
-        bg_prg, down_prg, up_prg, blit_prg,
+        bg_prg, wallpaper_prg, down_prg, up_prg, blit_prg,
         quad_vbo,
-        bg_u_time:   uloc(gl, bg_prg,   b"u_time\0"),
-        down_u_tex:  uloc(gl, down_prg, b"u_tex\0"),
-        down_u_hp:   uloc(gl, down_prg, b"u_hp\0"),
-        up_u_tex:    uloc(gl, up_prg,   b"u_tex\0"),
-        up_u_hp:     uloc(gl, up_prg,   b"u_hp\0"),
-        blit_u_tex:  uloc(gl, blit_prg, b"u_tex\0"),
-        blit_u_tint: uloc(gl, blit_prg, b"u_tint\0"),
+        bg_u_time:   uloc(gl, bg_prg,        b"u_time\0"),
+        wp_u_tex:    uloc(gl, wallpaper_prg,  b"u_tex\0"),
+        down_u_tex:  uloc(gl, down_prg,       b"u_tex\0"),
+        down_u_hp:   uloc(gl, down_prg,       b"u_hp\0"),
+        up_u_tex:    uloc(gl, up_prg,         b"u_tex\0"),
+        up_u_hp:     uloc(gl, up_prg,         b"u_hp\0"),
+        blit_u_tex:  uloc(gl, blit_prg,       b"u_tex\0"),
+        blit_u_tint: uloc(gl, blit_prg,       b"u_tint\0"),
         w, h, blur_w, blur_h,
         blur_passes,
         tint,
+        wallpaper_tex,
     })
 }
 
@@ -448,12 +513,22 @@ unsafe fn run_pipeline(gl: &Gl, r: &AeroGl, time: f32) -> Tex {
     gl.Disable(ffi::SCISSOR_TEST);
     gl.ActiveTexture(ffi::TEXTURE0);
 
-    // 1. Render animated gradient → scene_fbo (full res)
+    // 1. Render scene source → scene_fbo (full res)
+    //    If a wallpaper texture is set, blit it; otherwise use the animated gradient.
     gl.BindFramebuffer(ffi::FRAMEBUFFER, r.scene_fbo);
     gl.Viewport(0, 0, r.w as ffi::types::GLsizei, r.h as ffi::types::GLsizei);
-    gl.UseProgram(r.bg_prg);
-    gl.Uniform1f(r.bg_u_time, time);
-    draw_quad(gl, r.quad_vbo);
+    if r.wallpaper_tex != 0 {
+        gl.UseProgram(r.wallpaper_prg);
+        gl.ActiveTexture(ffi::TEXTURE0);
+        gl.BindTexture(ffi::TEXTURE_2D, r.wallpaper_tex);
+        gl.Uniform1i(r.wp_u_tex, 0);
+        draw_quad(gl, r.quad_vbo);
+        gl.BindTexture(ffi::TEXTURE_2D, 0);
+    } else {
+        gl.UseProgram(r.bg_prg);
+        gl.Uniform1f(r.bg_u_time, time);
+        draw_quad(gl, r.quad_vbo);
+    }
 
     // 2. Downsample scene → blur_a (half res) — first Kawase down-pass
     gl.BindFramebuffer(ffi::FRAMEBUFFER, r.blur_a_fbo);
@@ -491,6 +566,17 @@ unsafe fn run_pipeline(gl: &Gl, r: &AeroGl, time: f32) -> Tex {
     } else {
         r.blur_b_tex
     }
+}
+
+// ── Wallpaper image loader ────────────────────────────────────────────────────
+
+/// Decode any supported image format to raw RGBA8 bytes.
+pub fn load_wallpaper_rgba(
+    path: &std::path::Path,
+) -> Result<(Vec<u8>, u32, u32), Box<dyn std::error::Error>> {
+    let img = image::open(path)?.into_rgba8();
+    let (w, h) = img.dimensions();
+    Ok((img.into_raw(), w, h))
 }
 
 /// Blit `tex` to the currently-bound default framebuffer (the screen) as a

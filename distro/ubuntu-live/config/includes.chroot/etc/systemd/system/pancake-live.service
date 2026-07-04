@@ -1,0 +1,23 @@
+[Unit]
+Description=Pancake live desktop session
+After=systemd-user-sessions.service seatd.service pancake-xdg-runtime.service
+Wants=seatd.service pancake-xdg-runtime.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+Environment=TERM=linux
+Environment=XDG_RUNTIME_DIR=/run/user/0
+Environment=LIBSEAT_BACKEND=seatd
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+ExecStart=/usr/local/bin/start-pancake
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

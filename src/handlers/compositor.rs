@@ -1,12 +1,16 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
-    reexports::wayland_server::{protocol::wl_surface::WlSurface, Client},
+    reexports::wayland_server::{protocol::wl_surface::WlSurface, Client, Resource},
     wayland::compositor::{
         get_parent, is_sync_subsurface, CompositorClientState, CompositorHandler, CompositorState,
     },
 };
 
 use crate::state::{ClientState, PancakeState};
+
+static COMMIT_LOG_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 impl CompositorHandler for PancakeState {
     fn compositor_state(&mut self) -> &mut CompositorState {
@@ -35,5 +39,15 @@ impl CompositorHandler for PancakeState {
         // Refresh the space so the window's new buffer is shown on the next frame.
         self.space.refresh();
         self.popup_manager.cleanup();
+
+        let n = COMMIT_LOG_COUNT.fetch_add(1, Ordering::Relaxed);
+        if n < 24 {
+            tracing::info!(
+                "Committed Wayland surface; root={:?}, space_windows={}, xdg_toplevels={}",
+                root.id(),
+                self.space.elements().count(),
+                self.xdg_shell_state.toplevel_surfaces().len()
+            );
+        }
     }
 }

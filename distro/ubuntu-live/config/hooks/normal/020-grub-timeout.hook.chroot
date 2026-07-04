@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+# Set GRUB defaults for the live system boot entry
+if [ -f /etc/default/grub ]; then
+  sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=5/' /etc/default/grub
+  sed -i 's/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=menu/' /etc/default/grub
+  # Remove any graphical splash that causes blank blue screens in VMs
+  sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet"/' /etc/default/grub
+fi

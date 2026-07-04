@@ -16,13 +16,16 @@ endif
 ISO_PROFILE  := iso/profile
 ISO_WORK     := /tmp/pancake-iso-work
 ISO_OUT      := iso/out
+UBUNTU_ISO_OUT := $(ISO_OUT)/ubuntu
 DEBIAN_ISO_OUT := $(ISO_OUT)/debian
 ARCH_ISO_OUT   := $(ISO_OUT)/arch
+UBUNTU_PROFILE := distro/ubuntu-live
+UBUNTU_WORK    := /tmp/pancake-ubuntu-live
 DEBIAN_PROFILE := distro/debian-live
 DEBIAN_WORK    := /tmp/pancake-debian-live
 CONTAINER_RUNTIME ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 
-.PHONY: all build check clean install uninstall run run-winit fmt lint deps iso iso-debian iso-arch iso-info iso-clean qemu-debian
+.PHONY: all build check clean install uninstall run run-winit fmt lint deps iso iso-ubuntu iso-debian iso-arch iso-info iso-clean qemu-ubuntu qemu-debian
 
 ## Default target
 all: build
@@ -79,21 +82,53 @@ uninstall:
 clean:
 	$(CARGO) clean
 
-## Build a Debian Live ISO containing Pancake
+## Build an Ubuntu 24.04 LTS (Noble) Live ISO containing Pancake  [PRIMARY]
 ##
-## Requires on pacman hosts: sudo pacman -S docker
-## Then enable Docker:       sudo systemctl enable --now docker
-## Run:                      sudo make iso
+## Requires Docker or Podman.
+## On Arch:    sudo pacman -S docker && sudo systemctl enable --now docker
+## On Ubuntu:  sudo apt install docker.io && sudo systemctl enable --now docker
+## Run:        sudo make iso
 ##
-## Output: iso/out/pancake-debian-YYYY.MM.DD-amd64.iso
-iso: iso-debian
+## Output: iso/out/ubuntu/pancake-ubuntu-YYYY.MM.DD-amd64.iso
+iso: iso-ubuntu
 
+iso-ubuntu:
+	@test -n "$(CONTAINER_RUNTIME)" || \
+	  { echo "ERROR: no container runtime found. Install docker or podman."; exit 1; }
+	"$(CONTAINER_RUNTIME)" run --rm --privileged \
+	  -v "$(CURDIR)":/work \
+	  -w /work \
+	  -e ISO_OUT="$(UBUNTU_ISO_OUT)" \
+	  ubuntu:noble \
+	  ./scripts/build-ubuntu-iso-container.sh
+
+## Boot the Ubuntu ISO in QEMU.
+##
+## Uses virtio-vga with OpenGL so both TTY switching (Ctrl+Alt+Fn) and
+## the Pancake GLES blur pipeline work in the VM.  KVM is enabled when
+## the host supports it.
+##
+## Usage: make qemu-ubuntu
+qemu-ubuntu:
+	$(eval ISO := $(shell ls -t $(UBUNTU_ISO_OUT)/pancake-ubuntu-*.iso 2>/dev/null | head -1))
+	@test -n "$(ISO)" || \
+	  { echo "ERROR: no Ubuntu ISO found in $(UBUNTU_ISO_OUT). Run: sudo make iso"; exit 1; }
+	@echo "==> Booting $(ISO)"
+	qemu-system-x86_64 \
+	  $(shell command -v kvm >/dev/null 2>&1 && echo "-enable-kvm" || true) \
+	  -m 2048 \
+	  -smp 2 \
+	  -cdrom "$(ISO)" \
+	  -boot d \
+	  -vga virtio \
+	  -display gtk,show-cursor=on,gl=on \
+	  -device virtio-tablet \
+	  -no-reboot
+
+## Build a Debian Live ISO containing Pancake  [legacy]
 iso-debian:
 	@test -n "$(CONTAINER_RUNTIME)" || \
-	  { echo "ERROR: no container runtime found."; \
-	    echo "On pacman hosts run: sudo pacman -S docker"; \
-	    echo "Then run: sudo systemctl enable --now docker"; \
-	    exit 1; }
+	  { echo "ERROR: no container runtime found. Install docker or podman."; exit 1; }
 	"$(CONTAINER_RUNTIME)" run --rm --privileged \
 	  -v "$(CURDIR)":/work \
 	  -w /work \
@@ -101,16 +136,11 @@ iso-debian:
 	  debian:trixie \
 	  ./scripts/build-debian-iso-container.sh
 
-## Boot the latest Debian ISO in QEMU with correct display settings.
-##
-## Uses -vga std (VESA-compatible, works without guest drivers) so the
-## framebuffer console shows text.  KVM is used when available.
-##
-## Usage: make qemu-debian
+## Boot the latest Debian ISO in QEMU  [legacy]
 qemu-debian:
 	$(eval ISO := $(shell ls -t $(DEBIAN_ISO_OUT)/pancake-debian-*.iso 2>/dev/null | head -1))
 	@test -n "$(ISO)" || \
-	  { echo "ERROR: no Debian ISO found in $(DEBIAN_ISO_OUT). Run: sudo make iso"; exit 1; }
+	  { echo "ERROR: no Debian ISO found in $(DEBIAN_ISO_OUT). Run: sudo make iso-debian"; exit 1; }
 	@echo "==> Booting $(ISO)"
 	qemu-system-x86_64 \
 	  $(shell command -v kvm >/dev/null 2>&1 && echo "-enable-kvm" || true) \
@@ -147,29 +177,31 @@ iso-info:
 
 ## Remove ISO work directories and output
 iso-clean:
-	rm -rf "$(ISO_WORK)" "$(DEBIAN_WORK)" "$(ISO_OUT)"
+	rm -rf "$(ISO_WORK)" "$(UBUNTU_WORK)" "$(DEBIAN_WORK)" "$(ISO_OUT)"
 	@echo "ISO artifacts removed."
 
 help:
 	@echo "Pancake compositor — build targets:"
 	@echo ""
-	@echo "  make [all]       Build release binary (default)"
-	@echo "  make build       Same as above"
-	@echo "  make check       Type-check only (fast, no binary)"
-	@echo "  make test        Run test suite"
-	@echo "  make fmt         Format source with rustfmt"
-	@echo "  make lint        Clippy with -D warnings"
-	@echo "  make deps        Verify system libraries are present"
-	@echo "  make run-winit   Run nested inside an existing compositor"
-	@echo "  make run         Run on bare hardware (TTY)"
-	@echo "  make install     Install to PREFIX (default /usr/local)"
-	@echo "  make uninstall   Remove installed binary"
-	@echo "  make clean       Remove build artifacts"
-	@echo "  make iso         Build Debian Live ISO through Docker/Podman"
-	@echo "  make iso-arch    Build legacy Arch Linux live ISO"
-	@echo "  make qemu-debian Boot the Debian ISO in QEMU (-vga std)"
-	@echo "  make iso-info    Show ISO labels so Arch/Debian artifacts are obvious"
-	@echo "  make iso-clean   Remove ISO work/output directories"
+	@echo "  make [all]        Build release binary (default)"
+	@echo "  make build        Same as above"
+	@echo "  make check        Type-check only (fast, no binary)"
+	@echo "  make test         Run test suite"
+	@echo "  make fmt          Format source with rustfmt"
+	@echo "  make lint         Clippy with -D warnings"
+	@echo "  make deps         Verify system libraries are present"
+	@echo "  make run-winit    Run nested inside an existing compositor"
+	@echo "  make run          Run on bare hardware (TTY)"
+	@echo "  make install      Install to PREFIX (default /usr/local)"
+	@echo "  make uninstall    Remove installed binary"
+	@echo "  make clean        Remove build artifacts"
+	@echo "  make iso          Build Ubuntu 24.04 Live ISO [primary]"
+	@echo "  make qemu-ubuntu  Boot the Ubuntu ISO in QEMU (virtio-vga, GL on, KVM)"
+	@echo "  make iso-debian   Build Debian Live ISO [legacy]"
+	@echo "  make qemu-debian  Boot the Debian ISO in QEMU (-vga std)"
+	@echo "  make iso-arch     Build Arch Linux live ISO [legacy]"
+	@echo "  make iso-info     Show ISO labels"
+	@echo "  make iso-clean    Remove ISO work/output directories"
 	@echo ""
-	@echo "  PROFILE=dev make build   Build debug binary instead"
+	@echo "  PROFILE=dev make build    Build debug binary instead"
 	@echo "  PREFIX=/usr make install  Install to /usr/bin"
