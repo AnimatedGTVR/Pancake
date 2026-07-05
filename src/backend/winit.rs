@@ -22,7 +22,7 @@ use std::sync::Arc;
 use tracing::info;
 use wayland_server::ListeningSocket;
 
-use crate::render::{cursor, PancakeElements};
+use crate::render::{borders, cursor, PancakeElements};
 use crate::state::{ClientState, PancakeState};
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -116,10 +116,18 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     )
                 });
 
-            // Merge into PancakeElements (cursor on top = pushed last)
-            let mut all: Vec<PancakeElements> = space_elems
+            // Borders first (rendered under windows)
+            let border_elems = borders::collect_borders(
+                &state.space,
+                state.focused_window.as_ref(),
+                1.0,
+            );
+
+            // Space::render_elements_for_output already includes layer surfaces.
+            let mut all: Vec<PancakeElements> = border_elems
                 .into_iter()
-                .map(PancakeElements::Space)
+                .map(PancakeElements::Border)
+                .chain(space_elems.into_iter().map(PancakeElements::Space))
                 .collect();
             if let Some(ce) = cursor_elem {
                 all.push(PancakeElements::Cursor(ce));

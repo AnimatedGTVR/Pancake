@@ -75,6 +75,10 @@ pub fn run(tty: Option<u8>) -> Result<(), Box<dyn std::error::Error>> {
                             DrmEvent::VBlank(crtc) => {
                                 if let Some(gpu) = state.gpus.get_mut(gpu_idx) {
                                     gpu.on_vblank(crtc);
+                                    // Send frame callbacks AFTER the frame is confirmed
+                                    // displayed — this is what unblocks clients to render
+                                    // their next frame.
+                                    send_frame_callbacks(&mut state.pancake);
                                     gpu.render_all(&state.pancake);
                                 }
                             }
@@ -87,6 +91,11 @@ pub fn run(tty: Option<u8>) -> Result<(), Box<dyn std::error::Error>> {
                 for out_state in &gpu_data.outputs {
                     out_state.output.create_global::<PancakeState>(&display.handle());
                     pancake.space.map_output(&out_state.output, (0, 0));
+                    // Centre the cursor on first output so it's visible at boot.
+                    if pancake.cursor_pos == (0.0_f64, 0.0_f64).into() {
+                        let (w, h) = out_state.size;
+                        pancake.cursor_pos = ((w as f64 / 2.0), (h as f64 / 2.0)).into();
+                    }
                 }
 
                 gpus.push(gpu_data);
@@ -116,21 +125,21 @@ pub fn run(tty: Option<u8>) -> Result<(), Box<dyn std::error::Error>> {
         },
     )?;
 
-    // Early Pancake does not yet have fine-grained damage scheduling. Keep a
-    // gentle repaint tick so clients that map after the first DRM frame become
-    // visible without waiting for another external event.
+    // 20 Hz repaint safety-net: ensures cursor updates and new windows become
+    // visible even when no client commits have triggered a DRM frame recently.
+    // Frame callbacks are still only sent in VBlank, so clients are not overdriven.
     event_loop.handle().insert_source(
-        Timer::from_duration(Duration::from_millis(16)),
+        Timer::from_duration(Duration::from_millis(50)),
         |_, _, state: &mut State| {
             for gpu in &mut state.gpus {
                 gpu.render_all(&state.pancake);
             }
-            TimeoutAction::ToDuration(Duration::from_millis(16))
+            TimeoutAction::ToDuration(Duration::from_millis(50))
         },
     )?;
 
     // ── Wayland socket ────────────────────────────────────────────────────────
-    let listener = ListeningSocket::bind_auto("wayland", 1..33)?;
+    let listener = ListeningSocket::bind_auto("wayland", 0..33)?;
     let socket_name = listener
         .socket_name()
         .and_then(|s| s.to_str())
@@ -176,7 +185,6 @@ pub fn run(tty: Option<u8>) -> Result<(), Box<dyn std::error::Error>> {
         }
         display.dispatch_clients(&mut state.pancake).ok();
         display.flush_clients().ok();
-        send_frame_callbacks(&mut state.pancake);
     })?;
 
     Ok(())

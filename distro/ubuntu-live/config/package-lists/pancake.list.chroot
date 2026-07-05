@@ -1,4 +1,4 @@
-# Core live system
+# ── Core live system ──────────────────────────────────────────────────────────
 systemd-sysv
 linux-image-generic
 bash
@@ -14,7 +14,7 @@ passwd
 sudo
 dbus
 
-# Firmware (Ubuntu bundles free + non-free in one package)
+# ── Firmware (Ubuntu bundles free + non-free in one package) ──────────────────
 linux-firmware
 mesa-utils
 libgl1-mesa-dri
@@ -25,11 +25,10 @@ libegl1
 libgles2
 libpixman-1-0
 
-# VM guest drivers (for QEMU/KVM TTY + GPU)
+# ── VM guest drivers ──────────────────────────────────────────────────────────
 spice-vdagent
-open-vm-tools
 
-# Seat, input, and Wayland runtime
+# ── Seat, input, Wayland runtime ──────────────────────────────────────────────
 seatd
 libseat1
 libinput10
@@ -38,33 +37,53 @@ libevdev2
 libmtdev1
 libwayland-server0
 libwayland-client0
-wayland-protocols
 libxkbcommon0
 xkb-data
-foot
-waybar
-swaybg
-xterm
-fonts-dejavu-core
 xwayland
 
-# Networking and rescue tools
+# ── Terminal ──────────────────────────────────────────────────────────────────
+foot
+
+# ── Pancake desktop ───────────────────────────────────────────────────────────
+waybar
+wofi
+dunst
+libnotify-bin
+xdg-utils
+dbus-x11
+swaybg
+swaylock
+grim
+slurp
+brightnessctl
+wl-clipboard
+
+# ── Networking (minimal — wifi + DHCP) ───────────────────────────────────────
 iproute2
 iw
-isc-dhcp-client
-openssh-client
-ca-certificates
+wpasupplicant
+dhcpcd5
+
+# ── Audio (pipewire minimal — no GTK apps) ───────────────────────────────────
+pipewire
+pipewire-pulse
+wireplumber
+pamixer
+
+# ── Fonts (just what we need — not the full noto set) ────────────────────────
+fonts-noto-core
+fonts-noto-color-emoji
+fonts-open-sans
+fonts-dejavu-core
+
+# ── Icons + theming ───────────────────────────────────────────────────────────
+hicolor-icon-theme
+breeze-icon-theme
+breeze-cursor-theme
+
+# ── Rescue tools ─────────────────────────────────────────────────────────────
 less
 nano
-vim
-file
-man-db
-manpages
-tar
-gzip
-bzip2
-xz-utils
-zstd
-wget
 curl
+wget
 git

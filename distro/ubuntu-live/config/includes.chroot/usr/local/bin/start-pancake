@@ -5,91 +5,134 @@ export RUST_LOG="${RUST_LOG:-pancake=warn,smithay=warn}"
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
 export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
-export SEATD_SOCK="${SEATD_SOCK:-/run/seatd.sock}"
+
+# Theming
+export GTK_THEME=Breeze-Dark
+export XCURSOR_THEME=Breeze_Snow
+export XCURSOR_SIZE=24
+export QT_QPA_PLATFORMTHEME=gtk3
+export QT_AUTO_SCREEN_SCALE_FACTOR=1
 
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
-# Deploy default Pancake config if user doesn't already have one
+# ── Deploy default configs on first boot ─────────────────────────────────────
 PANCAKE_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/pancake"
 mkdir -p "$PANCAKE_CFG_DIR"
+
+# Pancake compositor config
 if [ ! -f "$PANCAKE_CFG_DIR/config.confi" ] && [ -f /etc/pancake/config.confi ]; then
     cp /etc/pancake/config.confi "$PANCAKE_CFG_DIR/config.confi"
 fi
 
-printf '\033c'
-printf 'Pancake live session\n'
-printf '====================\n\n'
-
-dump_drm_debug() {
-    {
-        printf '== command line ==\n'
-        cat /proc/cmdline 2>/dev/null || true
-        printf '\n== drm modules ==\n'
-        lsmod 2>/dev/null | grep -E '^(virtio_gpu|qxl|bochs|vmwgfx|drm|drm_kms_helper)' || true
-        printf '\n== drm devices ==\n'
-        ls -l /dev/dri 2>/dev/null || true
-        printf '\n== sysfs drm connectors ==\n'
-        for status in /sys/class/drm/*/status; do
-            [ -e "$status" ] || continue
-            connector="${status%/status}"
-            printf '%s: ' "${connector##*/}"
-            cat "$status" 2>/dev/null || true
-            modes="${connector}/modes"
-            if [ -r "$modes" ]; then
-                sed 's/^/  mode: /' "$modes" 2>/dev/null || true
-            fi
-        done
-        printf '\n== seatd ==\n'
-        ls -l "$SEATD_SOCK" 2>/dev/null || true
-        tail -40 /tmp/seatd.log 2>/dev/null || true
-        printf '\n== foot ==\n'
-        tail -80 /tmp/foot.log 2>/dev/null || true
-        printf '\n== waybar ==\n'
-        tail -80 /tmp/waybar.log 2>/dev/null || true
-    } > /tmp/pancake-drm-debug.txt
-}
-
-if grep -qw 'pancake.debug_shell=1' /proc/cmdline; then
-    printf 'Failsafe debug mode: not starting Pancake automatically.\n'
-    printf 'Diagnostics: /tmp/pancake-drm-debug.txt\n\n'
-    dump_drm_debug
-    cat /tmp/pancake-drm-debug.txt
-    printf '\nDebug shell. Try: start-pancake-terminal or pancake --tty 1\n'
-    exec sh
+# Waybar config (copy to user config only if not already customised)
+WAYBAR_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/waybar"
+if [ ! -d "$WAYBAR_CFG_DIR" ]; then
+    mkdir -p "$WAYBAR_CFG_DIR"
+    [ -f /etc/xdg/waybar/config ]    && cp /etc/xdg/waybar/config    "$WAYBAR_CFG_DIR/config"
+    [ -f /etc/xdg/waybar/style.css ] && cp /etc/xdg/waybar/style.css "$WAYBAR_CFG_DIR/style.css"
 fi
 
-# Start seatd if not already running. The live image runs as root on tty1, but
-# libseat still needs the seatd socket to exist before Pancake starts.
+# Wofi config
+WOFI_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/wofi"
+if [ ! -d "$WOFI_CFG_DIR" ]; then
+    mkdir -p "$WOFI_CFG_DIR"
+    [ -f /etc/xdg/wofi/config ]     && cp /etc/xdg/wofi/config     "$WOFI_CFG_DIR/config"
+    [ -f /etc/xdg/wofi/style.css ]  && cp /etc/xdg/wofi/style.css  "$WOFI_CFG_DIR/style.css"
+fi
+
+# Foot terminal config
+FOOT_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/foot"
+if [ ! -f "$FOOT_CFG_DIR/foot.ini" ]; then
+    mkdir -p "$FOOT_CFG_DIR"
+    [ -f /etc/xdg/foot/foot.ini ] && cp /etc/xdg/foot/foot.ini "$FOOT_CFG_DIR/foot.ini"
+fi
+
+# XDG user directories
+xdg-user-dirs-update 2>/dev/null || true
+
+# ── Start seat daemon ─────────────────────────────────────────────────────────
 if command -v systemctl >/dev/null 2>&1; then
     systemctl is-active --quiet seatd.service 2>/dev/null \
         || systemctl start seatd.service 2>/dev/null \
         || true
 fi
 
-if [ ! -S "$SEATD_SOCK" ] && command -v seatd >/dev/null 2>&1; then
-    seatd -g video >/tmp/seatd.log 2>&1 &
-fi
+# ── Launch Pancake compositor ─────────────────────────────────────────────────
+printf 'Starting Pancake...\nLogs: /tmp/pancake.log\n\n'
 
-for _ in $(seq 1 50); do
-    [ -S "$SEATD_SOCK" ] && break
-    sleep 0.1
+pancake --tty 1 > /tmp/pancake.log 2>&1 &
+PANCAKE_PID=$!
+
+# Wait for any wayland-N socket to appear (pancake picks the first free slot starting at 0)
+SOCKET=""
+for i in $(seq 1 60); do
+    for n in 0 1 2 3 4; do
+        candidate="$XDG_RUNTIME_DIR/wayland-$n"
+        if [ -S "$candidate" ]; then
+            SOCKET="$candidate"
+            export WAYLAND_DISPLAY="wayland-$n"
+            break 2
+        fi
+    done
+    sleep 0.25
 done
 
-printf 'Starting Pancake...\n'
-printf 'Logs: /tmp/pancake.log\n\n'
-
-# Let the DRM backend launch the first terminal after it has created the
-# Wayland socket. If Pancake exits, leave the log visible on the TTY.
-if ! command -v pancake >/dev/null 2>&1; then
-    printf 'ERROR: /usr/local/bin/pancake is missing from the live image.\n'
-    exec sh
+if [ -z "$SOCKET" ]; then
+    printf 'ERROR: Wayland socket not found after 15s. Pancake log:\n'
+    cat /tmp/pancake.log
+    exit 1
 fi
 
-PANCAKE_STARTUP_TERMINAL=1 PANCAKE_STARTUP_WAYBAR=1 pancake --tty 1 > /tmp/pancake.log 2>&1 || true
-dump_drm_debug
+printf "  Wayland socket: %s\n" "$WAYLAND_DISPLAY"
 
-printf '\nPancake exited. Last log lines:\n\n'
-tail -80 /tmp/pancake.log 2>/dev/null || true
-printf '\nDropping to a debug shell. Try: less /tmp/pancake.log or cat /tmp/pancake-drm-debug.txt\n'
-exec sh
+# ── Launch desktop components ─────────────────────────────────────────────────
+
+# Wallpaper (solid Aero blue if no image is set)
+if command -v swaybg >/dev/null 2>&1; then
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" swaybg -c "#0a1628" &
+fi
+
+# Notification daemon
+if command -v dunst >/dev/null 2>&1; then
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" dunst &
+    sleep 0.2
+fi
+
+# Status bar
+if command -v waybar >/dev/null 2>&1; then
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" waybar 2>>/tmp/waybar.log &
+    sleep 0.4
+fi
+
+# Network manager applet (if available)
+if command -v nm-applet >/dev/null 2>&1; then
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" nm-applet --indicator &
+fi
+
+# PipeWire audio
+if command -v pipewire >/dev/null 2>&1; then
+    pipewire & sleep 0.3
+    pipewire-pulse & sleep 0.2
+    wireplumber & sleep 0.2
+fi
+
+# Terminal — give waybar a moment to paint first
+sleep 0.6
+printf 'Launching foot terminal...\n'
+WAYLAND_DISPLAY="$WAYLAND_DISPLAY" foot &
+
+# Send a welcome notification
+sleep 1.0
+if command -v notify-send >/dev/null 2>&1; then
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" notify-send \
+        --icon=dialog-information \
+        --urgency=low \
+        --expire-time=5000 \
+        "Welcome to Pancake" \
+        "Super+Enter: terminal  ·  Super+D: apps  ·  Super+Q: close  ·  Super+L: lock  ·  Print: screenshot  ·  Super+1-9: workspaces"
+fi
+
+# Wait for the compositor to exit
+wait "$PANCAKE_PID" || true
+printf '\nPancake exited. Logs at /tmp/pancake.log\n'

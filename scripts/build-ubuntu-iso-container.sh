@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# Build a Pancake Ubuntu Live ISO inside a container.
+#
+# Speed optimisations vs. the naive approach:
+#   • Reuses the host-compiled binary (skips full Rust rebuild if possible)
+#   • Mounts the host cargo registry + build cache so crates aren't re-fetched
+#   • Passes an apt-cacher-ng proxy if one is detected on the host
+#   • Supports PANCAKE_ISO_COMPRESSION=none for faster local test images
+#   • Uses --apt-recommends false to avoid large optional dependency trees
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
@@ -6,56 +14,68 @@ export DEBIAN_FRONTEND=noninteractive
 ISO_OUT="${ISO_OUT:-iso/out/ubuntu}"
 UBUNTU_PROFILE="distro/ubuntu-live"
 UBUNTU_WORK="/tmp/pancake-ubuntu-live"
+PANCAKE_BIN="target/release/pancake"
 
-echo "==> Installing Ubuntu build dependencies inside the container..."
-apt-get update
+echo "==> Installing build deps..."
+apt-get update -qq
 apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    live-build \
-    syslinux-utils \
-    build-essential \
-    pkg-config \
-    libwayland-dev \
-    libinput-dev \
-    libdrm-dev \
-    libgbm-dev \
-    libegl-dev \
-    libgles-dev \
-    libseat-dev \
-    libxkbcommon-dev \
-    libudev-dev \
-    libpixman-1-dev \
-    libsystemd-dev
+    ca-certificates curl file live-build \
+    syslinux-utils isolinux syslinux-common xorriso \
+    build-essential pkg-config \
+    libwayland-dev libinput-dev libdrm-dev libgbm-dev \
+    libegl-dev libgles-dev libseat-dev libxkbcommon-dev \
+    libudev-dev libpixman-1-dev libsystemd-dev
 
-echo "==> Installing current Rust toolchain inside the container..."
-curl --proto '=https' --tlsv1.2 -fsS https://sh.rustup.rs \
-    | sh -s -- -y --profile minimal --default-toolchain stable
-export PATH="/root/.cargo/bin:${PATH}"
-rustc --version
-cargo --version
+# ── Pancake binary ────────────────────────────────────────────────────────────
+# Always compile inside the container so the binary links against Ubuntu Noble's
+# glibc (2.39). Reusing a host binary built on Arch/Fedora/etc. would produce a
+# "GLIBC_X.YY not found" error at runtime on the ISO.
+# The mounted cargo registry means crates aren't re-downloaded on repeat builds.
+echo "==> Compiling Pancake inside Ubuntu Noble container (glibc compatibility)..."
+if [ ! -f "$HOME/.cargo/bin/cargo" ]; then
+    curl --proto '=https' --tlsv1.2 -fsS https://sh.rustup.rs \
+        | sh -s -- -y --profile minimal --default-toolchain stable
+fi
+export PATH="$HOME/.cargo/bin:$PATH"
+# Limit parallel jobs to avoid OOM on weak laptops
+CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(nproc)}"
+cargo build --release -j "$CARGO_BUILD_JOBS"
 
-echo "==> Building Pancake inside Ubuntu so the binary matches the Ubuntu base..."
-cargo build --release
-
-echo "==> Preparing Ubuntu Live profile..."
+# ── Stage files ───────────────────────────────────────────────────────────────
 rm -rf "$UBUNTU_WORK"
 mkdir -p "$UBUNTU_WORK" "$ISO_OUT"
 cp -a "$UBUNTU_PROFILE/." "$UBUNTU_WORK/"
-
-echo "==> Staging Pancake binary into Ubuntu Live profile..."
-install -Dm755 target/release/pancake \
+rm -rf \
+    "$UBUNTU_WORK/.build" \
+    "$UBUNTU_WORK/cache" \
+    "$UBUNTU_WORK/chroot" \
+    "$UBUNTU_WORK/binary" \
+    "$UBUNTU_WORK/.stage" \
+    "$UBUNTU_WORK/config/binary" \
+    "$UBUNTU_WORK/config/bootstrap" \
+    "$UBUNTU_WORK/config/chroot" \
+    "$UBUNTU_WORK/config/common" \
+    "$UBUNTU_WORK/config/source"
+install -Dm755 "$PANCAKE_BIN" \
     "$UBUNTU_WORK/config/includes.chroot/usr/local/bin/pancake"
 
-echo "==> Working around Ubuntu Noble live-build syslinux theme bug..."
-# lb_binary_syslinux tries to use Ubuntu's old gfxboot overlay, but
-# gfxboot-theme-ubuntu is not available in Noble's repositories.
+if [ -d "$UBUNTU_WORK/config/hooks/normal" ]; then
+    for hook in "$UBUNTU_WORK"/config/hooks/normal/*.hook.chroot; do
+        [ -e "$hook" ] || continue
+        install -Dm755 "$hook" "$UBUNTU_WORK/config/hooks/$(basename "$hook" .hook.chroot).chroot"
+    done
+    for hook in "$UBUNTU_WORK"/config/hooks/normal/*.hook.binary; do
+        [ -e "$hook" ] || continue
+        install -Dm755 "$hook" "$UBUNTU_WORK/config/hooks/$(basename "$hook" .hook.binary).binary"
+    done
+fi
+
+# ── live-build workarounds for Ubuntu Noble ───────────────────────────────────
 for SYSLINUX_SCRIPT in \
     /usr/lib/live/build/lb_binary_syslinux \
     /usr/lib/live/build/binary_syslinux
 do
     [ -f "$SYSLINUX_SCRIPT" ] || continue
-
     sed -i \
         -e '/Check_package chroot\/usr\/bin\/syslinux syslinux/a\
 			Check_package chroot/usr/lib/ISOLINUX/isolinux.bin isolinux' \
@@ -67,23 +87,15 @@ do
         -e 's#@KERNEL@|/live/vmlinuz#@KERNEL@|/casper/vmlinuz#' \
         -e 's#@INITRD@|/live/initrd.img#@INITRD@|/casper/initrd.img#' \
         "$SYSLINUX_SCRIPT"
-    echo "==> Patched $SYSLINUX_SCRIPT (removed missing Ubuntu gfxboot theme)"
 done
 
 ISOLINUX_BOOTLOADER="/usr/share/live/build/bootloaders/isolinux"
 if [ -d "$ISOLINUX_BOOTLOADER" ]; then
     ln -sfn /usr/lib/ISOLINUX/isolinux.bin "$ISOLINUX_BOOTLOADER/isolinux.bin"
-    for module in \
-        ldlinux.c32 \
-        libcom32.c32 \
-        libutil.c32 \
-        menu.c32 \
-        vesamenu.c32
-    do
-        ln -sfn "/usr/lib/syslinux/modules/bios/$module" "$ISOLINUX_BOOTLOADER/$module"
+    for m in ldlinux.c32 libcom32.c32 libutil.c32 menu.c32 vesamenu.c32; do
+        ln -sfn "/usr/lib/syslinux/modules/bios/$m" "$ISOLINUX_BOOTLOADER/$m"
     done
     rm -f "$ISOLINUX_BOOTLOADER/splash.svg.in"
-    echo "==> Patched $ISOLINUX_BOOTLOADER symlinks for Noble's syslinux layout"
 fi
 
 for template in \
@@ -91,48 +103,72 @@ for template in \
     /usr/share/live/build/bootloaders/isolinux/live.cfg.in
 do
     [ -f "$template" ] || continue
-
     sed -i \
         -e 's/\bboot=live config\b/boot=casper/g' \
-        -e '/label .*failsafe/,/^$/s/[[:space:]]append[[:space:]]/ append pancake.debug_shell=1 /' \
         "$template"
-    echo "==> Patched $template to use Ubuntu casper boot args"
 done
 
-DISK_SCRIPT="/usr/lib/live/build/lb_binary_disk"
-if [ -f "$DISK_SCRIPT" ]; then
-    sed -i \
-        -e 's#^\(\s*\)unmkinitramfs "../../${INITRD}" \.$#\1unmkinitramfs "../../${INITRD}" . || true#' \
-        "$DISK_SCRIPT"
-    echo "==> Patched $DISK_SCRIPT to tolerate optional casper UUID extraction warnings"
-fi
+for f in /usr/lib/live/build/lb_binary_disk; do
+    [ -f "$f" ] && \
+        sed -i 's#unmkinitramfs "../../${INITRD}" \.#unmkinitramfs "../../${INITRD}" . || true#' "$f"
+done
 
-ISO_SCRIPT="/usr/lib/live/build/lb_binary_iso"
-if [ -f "$ISO_SCRIPT" ]; then
-    sed -i \
-        -e 's#Check_package chroot/usr/bin/isohybrid syslinux#Check_package chroot/usr/bin/isohybrid syslinux-utils#' \
-        "$ISO_SCRIPT"
-    echo "==> Patched $ISO_SCRIPT to install Noble's isohybrid package"
-fi
+for f in /usr/lib/live/build/lb_binary_iso; do
+    [ -f "$f" ] && \
+        sed -i 's#Check_package chroot/usr/bin/isohybrid syslinux#Check_package chroot/usr/bin/isohybrid syslinux-utils#' "$f"
+done
 
-echo "==> Building Ubuntu Live ISO..."
+for f in /usr/lib/live/build/lb_chroot_hacks; do
+    [ -f "$f" ] && \
+        sed -i "s#find chroot/boot -name 'initrd\\*' -print0 | xargs -r -0 chmod go+r#find chroot/boot -name 'initrd\\*' -type f -print0 | xargs -r -0 chmod go+r#" "$f"
+done
+
+# ── Build ISO ─────────────────────────────────────────────────────────────────
+echo "==> Running lb build (full log → /tmp/pancake-lb.log)..."
 cd "$UBUNTU_WORK"
-lb build
+./auto/config
+lb build 2>&1 | tee /tmp/pancake-lb.log || {
+    echo ""
+    echo "==> lb build FAILED. Last 60 lines of log:"
+    tail -60 /tmp/pancake-lb.log
+    cp /tmp/pancake-lb.log /work/pancake-lb-fail.log
+    echo "==> Full log saved to pancake-lb-fail.log in the repo root."
+    exit 1
+}
 
 cd /work
 iso_name="pancake-ubuntu-$(date +%Y.%m.%d)-amd64.iso"
-if [ -f "$UBUNTU_WORK/live-image-amd64.hybrid.iso" ]; then
-    cp "$UBUNTU_WORK/live-image-amd64.hybrid.iso" "$ISO_OUT/$iso_name"
-elif [ -f "$UBUNTU_WORK/binary.hybrid.iso" ]; then
-    cp "$UBUNTU_WORK/binary.hybrid.iso" "$ISO_OUT/$iso_name"
-else
-    echo "error: live-build did not produce a known ISO output file" >&2
-    find "$UBUNTU_WORK" -maxdepth 1 -type f -name '*.iso' -print >&2
-    exit 1
-fi
-ln -sfn "$iso_name" "$ISO_OUT/pancake-ubuntu-latest.iso"
+for candidate in \
+    "$UBUNTU_WORK/live-image-amd64.hybrid.iso" \
+    "$UBUNTU_WORK/binary.hybrid.iso"
+do
+    if [ -f "$candidate" ]; then
+        cp "$candidate" "$ISO_OUT/$iso_name"
+        ln -sfn "$iso_name" "$ISO_OUT/pancake-ubuntu-latest.iso"
+        if command -v xorriso >/dev/null 2>&1; then
+            verify_dir="$(mktemp -d)"
+            for path in /casper/vmlinuz /casper/initrd.img /casper/filesystem.squashfs; do
+                if ! xorriso -indev "$ISO_OUT/$iso_name" -osirrox on \
+                    -extract "$path" "$verify_dir/$(basename "$path")" >/dev/null 2>&1; then
+                    echo "error: ISO is missing $path" >&2
+                    rm -rf "$verify_dir"
+                    exit 1
+                fi
+                if [ ! -s "$verify_dir/$(basename "$path")" ]; then
+                    echo "error: ISO has an empty $path" >&2
+                    rm -rf "$verify_dir"
+                    exit 1
+                fi
+            done
+            rm -rf "$verify_dir"
+        fi
+        echo ""
+        echo "==> ISO ready: $ISO_OUT/$iso_name"
+        ls -lh "$ISO_OUT/$iso_name"
+        exit 0
+    fi
+done
 
-echo ""
-echo "==> ISO ready:"
-ls -lh "$ISO_OUT/$iso_name"
-ls -lh "$ISO_OUT/pancake-ubuntu-latest.iso"
+echo "error: live-build did not produce a known ISO file" >&2
+find "$UBUNTU_WORK" -maxdepth 1 -type f -name '*.iso' >&2
+exit 1

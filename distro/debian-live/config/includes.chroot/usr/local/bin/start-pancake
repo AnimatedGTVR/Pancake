@@ -6,41 +6,133 @@ export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
 export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
 
+# Theming
+export GTK_THEME=Breeze-Dark
+export XCURSOR_THEME=Breeze_Snow
+export XCURSOR_SIZE=24
+export QT_QPA_PLATFORMTHEME=gtk3
+export QT_AUTO_SCREEN_SCALE_FACTOR=1
+
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
-# Deploy default Pancake config if user doesn't already have one
+# ── Deploy default configs on first boot ─────────────────────────────────────
 PANCAKE_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/pancake"
 mkdir -p "$PANCAKE_CFG_DIR"
+
+# Pancake compositor config
 if [ ! -f "$PANCAKE_CFG_DIR/config.confi" ] && [ -f /etc/pancake/config.confi ]; then
     cp /etc/pancake/config.confi "$PANCAKE_CFG_DIR/config.confi"
 fi
 
-# Start seatd if not already running
+# Waybar config (copy to user config only if not already customised)
+WAYBAR_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/waybar"
+if [ ! -d "$WAYBAR_CFG_DIR" ]; then
+    mkdir -p "$WAYBAR_CFG_DIR"
+    [ -f /etc/xdg/waybar/config ]    && cp /etc/xdg/waybar/config    "$WAYBAR_CFG_DIR/config"
+    [ -f /etc/xdg/waybar/style.css ] && cp /etc/xdg/waybar/style.css "$WAYBAR_CFG_DIR/style.css"
+fi
+
+# Wofi config
+WOFI_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/wofi"
+if [ ! -d "$WOFI_CFG_DIR" ]; then
+    mkdir -p "$WOFI_CFG_DIR"
+    [ -f /etc/xdg/wofi/config ]     && cp /etc/xdg/wofi/config     "$WOFI_CFG_DIR/config"
+    [ -f /etc/xdg/wofi/style.css ]  && cp /etc/xdg/wofi/style.css  "$WOFI_CFG_DIR/style.css"
+fi
+
+# Foot terminal config
+FOOT_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/foot"
+if [ ! -f "$FOOT_CFG_DIR/foot.ini" ]; then
+    mkdir -p "$FOOT_CFG_DIR"
+    [ -f /etc/xdg/foot/foot.ini ] && cp /etc/xdg/foot/foot.ini "$FOOT_CFG_DIR/foot.ini"
+fi
+
+# XDG user directories
+xdg-user-dirs-update 2>/dev/null || true
+
+# ── Start seat daemon ─────────────────────────────────────────────────────────
 if command -v systemctl >/dev/null 2>&1; then
     systemctl is-active --quiet seatd.service 2>/dev/null \
         || systemctl start seatd.service 2>/dev/null \
         || true
 fi
 
-printf 'Starting Pancake...\n'
-printf 'Logs: /tmp/pancake.log\n\n'
+# ── Launch Pancake compositor ─────────────────────────────────────────────────
+printf 'Starting Pancake...\nLogs: /tmp/pancake.log\n\n'
 
-# Redirect compositor output entirely to log — do not mix with terminal
 pancake --tty 1 > /tmp/pancake.log 2>&1 &
 PANCAKE_PID=$!
 
-SOCKET="$XDG_RUNTIME_DIR/wayland-0"
-for i in $(seq 1 20); do
-    [ -S "$SOCKET" ] && break
-    sleep 0.5
+# Wait for any wayland-N socket to appear (pancake picks the first free slot starting at 0)
+SOCKET=""
+for i in $(seq 1 60); do
+    for n in 0 1 2 3 4; do
+        candidate="$XDG_RUNTIME_DIR/wayland-$n"
+        if [ -S "$candidate" ]; then
+            SOCKET="$candidate"
+            export WAYLAND_DISPLAY="wayland-$n"
+            break 2
+        fi
+    done
+    sleep 0.25
 done
 
-if [ -S "$SOCKET" ]; then
-    printf 'Socket ready — launching foot\n'
-    WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" foot &
-else
-    printf 'WARNING: no Wayland socket after 10s. See /tmp/pancake.log\n'
+if [ -z "$SOCKET" ]; then
+    printf 'ERROR: Wayland socket not found after 15s. Pancake log:\n'
+    cat /tmp/pancake.log
+    exit 1
 fi
 
+printf "  Wayland socket: %s\n" "$WAYLAND_DISPLAY"
+
+# ── Launch desktop components ─────────────────────────────────────────────────
+
+# Wallpaper
+if command -v swaybg >/dev/null 2>&1; then
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" swaybg -c "#0a1628" &
+fi
+
+# Notification daemon
+if command -v dunst >/dev/null 2>&1; then
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" dunst &
+    sleep 0.2
+fi
+
+# Status bar
+if command -v waybar >/dev/null 2>&1; then
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" waybar 2>>/tmp/waybar.log &
+    sleep 0.4
+fi
+
+# Network manager applet (if available)
+if command -v nm-applet >/dev/null 2>&1; then
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" nm-applet --indicator &
+fi
+
+# PipeWire audio
+if command -v pipewire >/dev/null 2>&1; then
+    pipewire & sleep 0.3
+    pipewire-pulse & sleep 0.2
+    wireplumber & sleep 0.2
+fi
+
+# Terminal — give waybar a moment to paint first
+sleep 0.6
+printf 'Launching foot terminal...\n'
+WAYLAND_DISPLAY="$WAYLAND_DISPLAY" foot &
+
+# Send a welcome notification
+sleep 1.0
+if command -v notify-send >/dev/null 2>&1; then
+    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" notify-send \
+        --icon=dialog-information \
+        --urgency=low \
+        --expire-time=5000 \
+        "Welcome to Pancake" \
+        "Super+Enter: terminal  ·  Super+D: apps  ·  Super+Q: close  ·  Super+L: lock  ·  Print: screenshot  ·  Super+1-9: workspaces"
+fi
+
+# Wait for the compositor to exit
 wait "$PANCAKE_PID" || true
+printf '\nPancake exited. Logs at /tmp/pancake.log\n'

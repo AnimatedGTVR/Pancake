@@ -1,30 +1,55 @@
-# Pancake compositor config — Syrup native format
-# !lang syrup
+# ─────────────────────────────────────────────────────────────────────────────
+#  Pancake  ·  Default configuration
+#  Language: Syrup native  (see !lang directive options below)
+# ─────────────────────────────────────────────────────────────────────────────
+# Reload at runtime:  kill -HUP $(pgrep pancake)
 #
-# Reload at runtime: kill -HUP $(pgrep pancake)
-#
-# Supported languages:
-#   !lang syrup    (default, this file)
+# Other supported config languages:
 #   !lang lua      (return a nested table)
 #   !lang cpp      (C++ style typed assignments)
 #   !lang csharp   (C# style typed assignments)
+# ─────────────────────────────────────────────────────────────────────────────
 
 compositor {
     terminal        = "foot"
+
+    # Aero glass blur  — 4 passes at half resolution looks great and stays fast
     blur_passes     = 4
     blur_downsample = 2
-    tint            = [0.55, 0.70, 1.00, 0.18]
+
+    # Blue-white glass tint (RGBA, linear)  — tweak the last value for opacity
+    tint            = [0.52, 0.68, 1.00, 0.20]
+
+    # Wallpaper (comment out to use the animated gradient)
     # wallpaper     = "/usr/share/pancake/walls/aero-default.jpg"
 }
 
 keybinds {
-    terminal = "Super+T"
-    close    = "Super+Q"
-    quit     = "Super+Escape"
-    cycle    = "Super+Tab"
+    # ── Window management ────────────────────────────────────────────────────
+    terminal = "Super+T"          # launch foot
+    close    = "Super+Q"          # close focused window
+    cycle    = "Super+Tab"        # cycle focus (all windows)
+
+    # ── Workspaces ───────────────────────────────────────────────────────────
+    # Super+1..9           switch to workspace N
+    # Super+Shift+1..9     move focused window to workspace N
+
+    # ── Layout (built-in, not configurable yet) ──────────────────────────────
+    # Super+Left/Right     snap window to left / right half
+    # Super+Up             maximize
+    # Super+Down           restore / float
+    # Super+F              toggle fullscreen
+    # Super+LMB drag       interactive window move
+
+    # ── Launcher ────────────────────────────────────────────────────────────
+    # Super+D              app launcher (wofi → rofi → bemenu → dmenu fallback)
+
+    # ── System ──────────────────────────────────────────────────────────────
+    quit     = "Super+Escape"     # exit Pancake
 }
 
 startup {
-    # Additional apps launched after waybar and foot
-    # apps = ["dunst", "nm-applet"]
+    # Extra apps launched after Pancake and foot are ready.
+    # dunst is started automatically by start-pancake.
+    # apps = ["nm-applet", "blueman-applet"]
 }

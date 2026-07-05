@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+mkdir -p binary/casper
+
+if [ ! -f binary/casper/vmlinuz ]; then
+  if [ -f binary/live/vmlinuz ]; then
+    cp binary/live/vmlinuz binary/casper/vmlinuz
+  fi
+fi
+
+if [ ! -f binary/casper/initrd.img ]; then
+  if [ -f binary/live/initrd.img ]; then
+    cp binary/live/initrd.img binary/casper/initrd.img
+  fi
+fi
+
+if [ ! -f binary/casper/vmlinuz ]; then
+  kernel="$(find binary/live chroot/boot -maxdepth 1 -type f -name 'vmlinuz-*' 2>/dev/null | sort -V | tail -1)"
+  if [ -n "$kernel" ]; then
+    cp "$kernel" binary/casper/vmlinuz
+  fi
+fi
+
+if [ ! -f binary/casper/initrd.img ]; then
+  initrd="$(find binary/live chroot/boot -maxdepth 1 -type f -name 'initrd.img-*' 2>/dev/null | sort -V | tail -1)"
+  if [ -n "$initrd" ]; then
+    cp "$initrd" binary/casper/initrd.img
+  fi
+fi
+
+test -f binary/casper/vmlinuz
+test -f binary/casper/initrd.img

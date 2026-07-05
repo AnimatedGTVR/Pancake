@@ -1,12 +1,20 @@
 #!/bin/sh
 set -eu
 
+APT_PROXY=""
+if curl -sf --max-time 1 http://localhost:3142/acng-report.html >/dev/null 2>&1; then
+    APT_PROXY="http://localhost:3142"
+    echo "==> apt-cacher-ng detected — using proxy $APT_PROXY"
+fi
+
 lb config noauto \
   --mode debian \
   --distribution trixie \
   --archive-areas "main non-free-firmware" \
+  --apt-recommends false \
+  ${APT_PROXY:+--apt-http-proxy "$APT_PROXY"} \
   --binary-images iso-hybrid \
-  --bootappend-live "boot=live components quiet systemd.show_status=yes live-config.username=root live-config.user-default-groups=root,seat,tty,video,render,input" \
+  --bootappend-live "boot=live components quiet systemd.show_status=yes loglevel=3 live-config.username=root live-config.user-default-groups=root,seat,tty,video,render,input" \
   --bootappend-live-failsafe "boot=live components noapic noapm nodma nomce nolapic nomodeset nosmp vga=normal live-config.username=root" \
   --iso-application "Pancake Desktop Environment Live" \
   --iso-publisher "Pancake DE" \

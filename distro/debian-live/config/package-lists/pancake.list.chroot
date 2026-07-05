@@ -1,4 +1,4 @@
-# Core live system
+# ── Core live system ──────────────────────────────────────────────────────────
 live-boot
 systemd-sysv
 linux-image-amd64
@@ -15,10 +15,9 @@ passwd
 sudo
 dbus
 
-# Firmware and graphics
+# ── Firmware + graphics ───────────────────────────────────────────────────────
 firmware-linux-free
 firmware-linux-nonfree
-mesa-utils
 libgl1-mesa-dri
 libglvnd0
 libdrm2
@@ -27,40 +26,62 @@ libegl1
 libgles2
 libpixman-1-0
 
-# Seat, input, and Wayland runtime
+# ── Seat, input, Wayland runtime ──────────────────────────────────────────────
 seatd
 libseat1
 libinput10
 libudev1
 libevdev2
 libmtdev1
-libwacom9
 libwayland-server0
 libwayland-client0
-wayland-protocols
 libxkbcommon0
 xkb-data
-foot
-fonts-dejavu-core
 xwayland
 
-# Networking and rescue tools
+# ── Terminal ──────────────────────────────────────────────────────────────────
+foot
+
+# ── Pancake desktop ───────────────────────────────────────────────────────────
+waybar
+wofi
+dunst
+libnotify-bin
+xdg-utils
+dbus-x11
+swaybg
+swaylock
+grim
+slurp
+brightnessctl
+wl-clipboard
+
+# ── Networking ────────────────────────────────────────────────────────────────
 iproute2
 iw
-isc-dhcp-client
-openssh-client
-ca-certificates
+wpasupplicant
+dhcpcd5
+
+# ── Audio ─────────────────────────────────────────────────────────────────────
+pipewire
+pipewire-pulse
+wireplumber
+pamixer
+
+# ── Fonts ─────────────────────────────────────────────────────────────────────
+fonts-noto-core
+fonts-noto-color-emoji
+fonts-open-sans
+fonts-dejavu-core
+
+# ── Icons + theming ───────────────────────────────────────────────────────────
+hicolor-icon-theme
+breeze-icon-theme
+breeze-cursor-theme
+
+# ── Rescue tools ─────────────────────────────────────────────────────────────
 less
 nano
-vim
-file
-man-db
-manpages
-tar
-gzip
-bzip2
-xz-utils
-zstd
-wget
 curl
+wget
 git

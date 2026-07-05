@@ -43,7 +43,11 @@ impl WlrLayerShellHandler for PancakeState {
             let mut layer_map = layer_map_for_output(&output);
             if let Err(err) = layer_map.map_layer(&layer_surface) {
                 warn!("Failed to map layer surface '{namespace}': {err}");
+                return;
             }
+            // Compute geometry and send the initial configure so waybar/dunst know
+            // their position and size.
+            layer_map.arrange();
         }
     }
 

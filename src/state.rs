@@ -2,7 +2,7 @@ use std::os::unix::io::OwnedFd;
 
 use smithay::{
     delegate_compositor, delegate_data_device, delegate_layer_shell, delegate_output, delegate_seat,
-    delegate_shm, delegate_xdg_shell,
+    delegate_shm, delegate_xdg_decoration, delegate_xdg_shell,
     desktop::{PopupManager, Space, Window},
     input::{Seat, SeatState},
     reexports::wayland_server::{
@@ -21,7 +21,7 @@ use smithay::{
             },
             SelectionHandler,
         },
-        shell::{wlr_layer::WlrLayerShellState, xdg::XdgShellState},
+        shell::{wlr_layer::WlrLayerShellState, xdg::{decoration::XdgDecorationState, XdgShellState}},
         shm::{ShmHandler, ShmState},
     },
     xwayland::xwm::X11Wm,
@@ -29,6 +29,7 @@ use smithay::{
 
 use crate::config::{Config, RELOAD_REQUESTED};
 use crate::render::AeroRenderer;
+use crate::shell::workspace::WorkspaceManager;
 
 // ── Per-client state ────────────────────────────────────────────────────────
 
@@ -53,8 +54,9 @@ pub struct PancakeState {
     pub shm_state: ShmState,
     pub output_manager_state: OutputManagerState,
 
-    // XDG shell (application windows)
+    // XDG shell (application windows + decorations)
     pub xdg_shell_state: XdgShellState,
+    pub xdg_decoration_state: XdgDecorationState,
     pub layer_shell_state: WlrLayerShellState,
     pub popup_manager: PopupManager,
 
@@ -68,6 +70,9 @@ pub struct PancakeState {
     // Layout space — windows live here
     pub space: Space<Window>,
 
+    // Virtual workspace manager
+    pub workspaces: WorkspaceManager,
+
     // XWayland window manager (started lazily)
     pub xwm: Option<X11Wm>,
 
@@ -77,12 +82,18 @@ pub struct PancakeState {
     // Runtime configuration (terminal command, etc.)
     pub config: Config,
 
-    // Currently focused window, tracked for Super+Tab cycling.
+    // Currently focused window, tracked for Super+Tab cycling and borders.
     pub focused_window: Option<Window>,
 
     // Current pointer position (logical coordinates). Updated in PointerMotion
     // handler and read by the render backends to draw the cursor sprite.
     pub cursor_pos: Point<f64, Logical>,
+
+    // Interactive move grab: (window being moved, pointer-to-window-top-left offset).
+    pub move_grab: Option<(Window, Point<f64, Logical>)>,
+
+    // Interactive resize grab: (window, edge, start cursor pos, start window size).
+    pub resize_grab: Option<(Window, wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge, Point<f64, Logical>, smithay::utils::Size<i32, Logical>)>,
 }
 
 impl PancakeState {
@@ -93,6 +104,7 @@ impl PancakeState {
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
+        let xdg_decoration_state = XdgDecorationState::new::<Self>(&dh);
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
 
@@ -112,17 +124,21 @@ impl PancakeState {
             shm_state,
             output_manager_state,
             xdg_shell_state,
+            xdg_decoration_state,
             layer_shell_state,
             popup_manager: PopupManager::default(),
             seat_state,
             seat,
             data_device_state,
             space: Space::default(),
+            workspaces: WorkspaceManager::new(),
             xwm: None,
             renderer,
             config,
             focused_window: None,
             cursor_pos: (0.0, 0.0).into(),
+            move_grab: None,
+            resize_grab: None,
         }
     }
 
@@ -144,9 +160,6 @@ impl PancakeState {
     }
 
     /// Cycle keyboard focus to the next window in the space.
-    ///
-    /// Windows are cycled in map order. The focused window is raised to the top
-    /// so it is visually on top of everything else.
     pub fn cycle_focus(&mut self, serial: smithay::utils::Serial) {
         let windows: Vec<Window> = self.space.elements().cloned().collect();
         if windows.is_empty() {
@@ -174,9 +187,75 @@ impl PancakeState {
 
         self.focused_window = Some(next);
     }
+
+    /// Snap the focused window to a half of the output (left / right) or
+    /// maximize / restore (up / down).  Inspired by Hyprland's Super+arrow layout.
+    pub fn snap_focused(
+        &mut self,
+        direction: SnapDirection,
+    ) {
+        let output_geo = match self
+            .space
+            .outputs()
+            .next()
+            .and_then(|o| self.space.output_geometry(o))
+        {
+            Some(g) => g,
+            None => return,
+        };
+
+        let win = match self.focused_window.clone() {
+            Some(w) => w,
+            None => return,
+        };
+
+        let (loc, size) = match direction {
+            SnapDirection::Left => (
+                output_geo.loc,
+                (output_geo.size.w / 2, output_geo.size.h).into(),
+            ),
+            SnapDirection::Right => (
+                (output_geo.loc.x + output_geo.size.w / 2, output_geo.loc.y).into(),
+                (output_geo.size.w / 2, output_geo.size.h).into(),
+            ),
+            SnapDirection::Up => (output_geo.loc, output_geo.size),
+            SnapDirection::Down => {
+                // Restore: cascade position, reasonable size
+                let count = self.space.elements().count() as i32;
+                let x = 64 + count * 32;
+                let y = 64 + count * 32;
+                (
+                    (x, y).into(),
+                    (output_geo.size.w * 2 / 3, output_geo.size.h * 2 / 3).into(),
+                )
+            }
+        };
+
+        if let Some(toplevel) = win.toplevel() {
+            toplevel.with_pending_state(|s| {
+                s.size = Some(size);
+                if matches!(direction, SnapDirection::Up) {
+                    s.states.set(wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized);
+                } else {
+                    s.states.unset(wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized);
+                }
+            });
+            toplevel.send_pending_configure();
+        }
+        self.space.map_element(win.clone(), loc, true);
+        self.workspaces.update_position(&win, loc);
+    }
 }
 
-// ── Required trait impls (many are satisfying compiler constraints for delegate!) ──
+#[derive(Debug, Clone, Copy)]
+pub enum SnapDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+// ── Required trait impls ─────────────────────────────────────────────────────
 
 impl BufferHandler for PancakeState {
     fn buffer_destroyed(&mut self, _buffer: &wl_buffer::WlBuffer) {}
@@ -210,6 +289,7 @@ impl ServerDndGrabHandler for PancakeState {
 
 delegate_compositor!(PancakeState);
 delegate_xdg_shell!(PancakeState);
+delegate_xdg_decoration!(PancakeState);
 delegate_shm!(PancakeState);
 delegate_output!(PancakeState);
 delegate_layer_shell!(PancakeState);

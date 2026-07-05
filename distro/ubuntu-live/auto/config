@@ -1,6 +1,25 @@
 #!/bin/sh
 set -eu
 
+# Detect a local apt-cacher-ng cache proxy — saves re-downloading packages.
+APT_PROXY="${APT_HTTP_PROXY:-}"
+if [ -n "$APT_PROXY" ]; then
+    if curl -sf --max-time 2 "$APT_PROXY/acng-report.html" >/dev/null 2>&1; then
+        echo "==> apt proxy configured — using $APT_PROXY"
+    else
+        echo "==> apt proxy $APT_PROXY is not reachable — building without proxy"
+        APT_PROXY=""
+    fi
+elif curl -sf --max-time 1 http://localhost:3142/acng-report.html >/dev/null 2>&1; then
+    APT_PROXY="http://localhost:3142"
+    echo "==> apt-cacher-ng detected — using proxy $APT_PROXY"
+fi
+
+# live-build on Ubuntu Noble supports gzip/xz/bzip2/none here. Use:
+#   PANCAKE_ISO_COMPRESSION=none make iso-ubuntu
+# for a larger but faster local test image.
+PANCAKE_ISO_COMPRESSION="${PANCAKE_ISO_COMPRESSION:-gzip}"
+
 lb config noauto \
   --mode ubuntu \
   --distribution noble \
@@ -9,8 +28,15 @@ lb config noauto \
   --mirror-chroot "http://archive.ubuntu.com/ubuntu/" \
   --mirror-binary "http://archive.ubuntu.com/ubuntu/" \
   --binary-images iso-hybrid \
+  --apt-recommends false \
+  --memtest none \
+  --zsync false \
+  --checksums sha256 \
+  --chroot-filesystem squashfs \
+  --compression "$PANCAKE_ISO_COMPRESSION" \
   --syslinux-theme live-build \
-  --bootappend-live "components live-media=/dev/sr0 live-media-path=casper systemd.show_status=yes loglevel=4 live-config.username=root live-config.user-default-groups=root,seat,tty,video,render,input video=Virtual-1:1280x800@60 video=QXL-1:1280x800@60 video=VGA-1:1280x800@60" \
+  ${APT_PROXY:+--apt-http-proxy "$APT_PROXY"} \
+  --bootappend-live "components live-media=/dev/sr0 live-media-path=casper systemd.show_status=yes loglevel=3 live-config.username=root live-config.user-default-groups=root,seat,tty,video,render,input video=Virtual-1:1280x800@60 video=QXL-1:1280x800@60 video=VGA-1:1280x800@60" \
   --iso-application "Pancake Desktop Environment Live" \
   --iso-publisher "Pancake DE" \
   --iso-volume "PANCAKE_UBUNTU" \

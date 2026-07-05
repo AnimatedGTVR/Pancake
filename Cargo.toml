@@ -55,9 +55,19 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 mlua = { version = "0.10", features = ["lua54", "vendored"] }
 
 [profile.release]
-opt-level     = 3
-lto           = "thin"
-codegen-units = 1
+opt-level     = 2       # 2 is almost as fast as 3, compiles noticeably quicker
+lto           = "thin"  # thin LTO: good binary, much faster than fat LTO
+codegen-units = 4       # more units = faster compile, slightly larger binary
+strip         = true    # strip debug symbols — smaller ISO, faster squashfs
+
+# Fast iteration profile: `cargo build --profile dev-fast`
+# Same as dev but skips redundant codegen, links faster
+[profile.dev-fast]
+inherits      = "dev"
+opt-level     = 1
+codegen-units = 256
+incremental   = true
 
 [profile.dev]
-opt-level = 1
+opt-level   = 1
+incremental = true

@@ -32,14 +32,11 @@ use smithay::{
         drm::control::{connector, crtc, Device as ControlDevice, ModeTypeFlags},
         rustix::fs::OFlags,
     },
-    utils::{DeviceFd, Scale, Transform},
+    utils::{DeviceFd, Transform},
 };
 use tracing::{error, info, warn};
 
-use crate::render::{
-    cursor,
-    PancakeElements,
-};
+use crate::render::{borders, cursor, PancakeElements};
 use crate::state::PancakeState;
 
 // ── Type alias for our DrmCompositor ─────────────────────────────────────────
@@ -281,23 +278,20 @@ impl GpuData {
     /// Render one frame on every output.
     pub fn render_all(&mut self, state: &PancakeState) {
         let clear = Color32F::new(0.07, 0.10, 0.20, 1.0);
+        let frame_flags = if std::env::var_os("PANCAKE_DRM_ALLOW_SCANOUT").is_some() {
+            FrameFlags::DEFAULT
+        } else {
+            FrameFlags::empty()
+        };
 
-        // Build cursor element once — reused for each output
-        let cursor_elem: Option<TextureRenderElement<GlesTexture>> =
+        // Cursor sprite — try texture buffer first, fall back to a solid white square.
+        // Texture cursor: hotspot-adjusted logical → physical position.
+        let cursor_tex_info: Option<(smithay::utils::Point<f64, smithay::utils::Physical>, &TextureBuffer<GlesTexture>)> =
             self.cursor_buffer.as_ref().map(|buf| {
-                // Subtract hotspot so the visual tip lands at the pointer position
                 let hot = self.cursor_hotspot;
                 let x = state.cursor_pos.x - hot.0 as f64;
                 let y = state.cursor_pos.y - hot.1 as f64;
-                let phys = smithay::utils::Point::<f64, smithay::utils::Physical>::from((x, y));
-                TextureRenderElement::from_texture_buffer(
-                    phys,
-                    buf,
-                    None,
-                    None,
-                    None,
-                    Kind::Cursor,
-                )
+                (smithay::utils::Point::from((x, y)), buf)
             });
 
         for out_state in &mut self.outputs {
@@ -308,7 +302,7 @@ impl GpuData {
             // Collect space elements (windows, popups)
             let space_elements: Vec<smithay::desktop::space::SpaceRenderElements<
                 GlesRenderer,
-                smithay::wayland::compositor::WaylandSurfaceRenderElement<GlesRenderer>,
+                smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>,
             >> = match state.space.render_elements_for_output(
                 &mut self.renderer,
                 &out_state.output,
@@ -321,20 +315,48 @@ impl GpuData {
                 }
             };
 
-            // Wrap in PancakeElements and append cursor on top
-            let mut all: Vec<PancakeElements> = space_elements
-                .into_iter()
-                .map(PancakeElements::Space)
-                .collect();
-            if let Some(ref ce) = cursor_elem {
-                all.push(PancakeElements::Cursor(ce.clone()));
-            }
+            // Borders (under windows)
+            let border_elems = borders::collect_borders(
+                &state.space,
+                state.focused_window.as_ref(),
+                1.0,
+            );
 
-            let frame_flags = if std::env::var_os("PANCAKE_DRM_ALLOW_SCANOUT").is_some() {
-                FrameFlags::DEFAULT
+            // Space::render_elements_for_output already includes layer surfaces
+            // (Background/Bottom below windows, Top/Overlay above).
+            let mut all: Vec<PancakeElements> = border_elems
+                .into_iter()
+                .map(PancakeElements::Border)
+                .chain(space_elements.into_iter().map(PancakeElements::Space))
+                .collect();
+
+            // Cursor: prefer texture, fall back to a visible solid-white square.
+            let has_cursor = cursor_tex_info.is_some();
+            if let Some((phys, buf)) = cursor_tex_info {
+                all.push(PancakeElements::Cursor(
+                    TextureRenderElement::from_texture_buffer(
+                        phys, buf, None, None, None, Kind::Cursor,
+                    ),
+                ));
             } else {
-                FrameFlags::empty()
-            };
+                // Fallback: solid white 12×12 square at cursor position
+                use smithay::{
+                    backend::renderer::element::solid::SolidColorRenderElement,
+                    utils::Rectangle,
+                };
+                let cx = state.cursor_pos.x as i32;
+                let cy = state.cursor_pos.y as i32;
+                let cursor_rect = Rectangle::new((cx, cy).into(), (12, 12).into());
+                all.push(PancakeElements::Border(
+                    SolidColorRenderElement::new(
+                        smithay::backend::renderer::element::Id::new(),
+                        cursor_rect,
+                        0usize,
+                        Color32F::new(1.0, 1.0, 1.0, 1.0),
+                        Kind::Cursor,
+                    )
+                ));
+            }
 
             match out_state.compositor.render_frame(
                 &mut self.renderer,
@@ -351,7 +373,7 @@ impl GpuData {
                             out_state.size.0,
                             out_state.size.1,
                             all.len(),
-                            cursor_elem.is_some(),
+                            has_cursor,
                         );
                     }
                     if let Err(e) = out_state.compositor.queue_frame(()) {

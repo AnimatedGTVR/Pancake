@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+cd binary
+rm -f md5sum.txt
+
+find . \
+  -type f \
+  ! -name md5sum.txt \
+  ! -path './isolinux/boot.cat' \
+  -print0 \
+  | sort -z \
+  | xargs -0 md5sum > md5sum.txt
+
+test -s md5sum.txt

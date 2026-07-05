@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
+    desktop::layer_map_for_output,
     reexports::wayland_server::{protocol::wl_surface::WlSurface, Client, Resource},
     wayland::compositor::{
         get_parent, is_sync_subsurface, CompositorClientState, CompositorHandler, CompositorState,
@@ -34,6 +35,13 @@ impl CompositorHandler for PancakeState {
         let mut root = surface.clone();
         while let Some(parent) = get_parent(&root) {
             root = parent;
+        }
+
+        // Re-arrange layer surfaces on every commit so size/position changes
+        // (e.g. waybar changing its height) are reflected immediately.
+        for output in self.space.outputs().cloned().collect::<Vec<_>>() {
+            let mut layer_map = layer_map_for_output(&output);
+            layer_map.arrange();
         }
 
         // Refresh the space so the window's new buffer is shown on the next frame.
