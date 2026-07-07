@@ -13,13 +13,13 @@ use smithay::{
 };
 
 // Border thickness in logical pixels
-const BORDER_PX: i32 = 2;
+const BORDER_PX: i32 = 3;
 
-// Active border: soft Aero-blue accent
-const ACTIVE_COLOR: Color32F = Color32F::new(0.55, 0.78, 1.0, 0.92);
+// Active border: warm amber/syrup — distinctive against the cool blue glass
+const ACTIVE_COLOR: Color32F = Color32F::new(0.96, 0.67, 0.20, 0.95);
 
-// Inactive border: muted slate
-const INACTIVE_COLOR: Color32F = Color32F::new(0.30, 0.32, 0.42, 0.70);
+// Inactive border: barely-visible cool slate
+const INACTIVE_COLOR: Color32F = Color32F::new(0.22, 0.26, 0.40, 0.50);
 
 /// Emit border render elements for all windows in the space.
 ///

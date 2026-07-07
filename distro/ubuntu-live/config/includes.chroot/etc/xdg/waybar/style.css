@@ -1,11 +1,12 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Pancake DE  ·  Taskbar  ·  Windows Aero Glass aesthetic
-   Bottom bar, frosted blue-white glass, NOT GNOME.
+   Pancake DE  ·  Taskbar  ·  Three-island Aero Glass
+   Three floating glass pills at the bottom — left / clock / right.
+   Active accent: warm amber (#f0a830) — the "syrup" colour.
    ══════════════════════════════════════════════════════════════════════════ */
 
 * {
-    font-family: "Open Sans", "Noto Sans", "DejaVu Sans", sans-serif;
-    font-size: 13px;
+    font-family: "Inter", "Open Sans", "Noto Sans", sans-serif;
+    font-size: 12.5px;
     min-height: 0;
     border: none;
     border-radius: 0;
@@ -13,123 +14,119 @@
     margin: 0;
 }
 
+/* Bar window is invisible — islands provide their own backgrounds */
 window#waybar {
-    /* Deep translucent blue — the compositor blur shows through this */
-    background: rgba(14, 28, 64, 0.72);
-    color: #d8eaff;
-    border: 1px solid rgba(100, 160, 255, 0.28);
-    border-radius: 12px;
-    box-shadow: 0 -2px 24px rgba(40, 80, 200, 0.18);
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+/* ── Three glass pill islands ──────────────────────────────────────────── */
+
+.modules-left,
+.modules-center,
+.modules-right {
+    background: rgba(10, 18, 46, 0.84);
+    border: 1px solid rgba(75, 135, 255, 0.24);
+    border-radius: 14px;
+    padding: 0 4px;
+    margin: 0 5px;
+    box-shadow:
+        0 2px 24px rgba(10, 30, 120, 0.32),
+        inset 0 1px 0 rgba(160, 200, 255, 0.07);
 }
 
 /* ── Start button ──────────────────────────────────────────────────────── */
 
 #custom-start {
-    font-size: 20px;
-    padding: 4px 14px 4px 12px;
-    border-right: 1px solid rgba(100, 160, 255, 0.20);
-    margin-right: 4px;
-    transition: background 0.15s;
+    font-size: 17px;
+    padding: 4px 13px 4px 11px;
+    border-right: 1px solid rgba(75, 135, 255, 0.18);
+    margin-right: 3px;
+    transition: background 0.16s;
 }
 
 #custom-start:hover {
-    background: rgba(100, 160, 255, 0.22);
-    border-radius: 8px 0 0 8px;
+    background: rgba(240, 168, 48, 0.16);
+    border-radius: 11px 0 0 11px;
 }
 
 /* ── Workspace dots ────────────────────────────────────────────────────── */
 
-#custom-workspaces {
-    padding: 0 12px;
-    color: rgba(140, 190, 255, 0.80);
-    font-size: 11px;
-    letter-spacing: 4px;
-    border-right: 1px solid rgba(100, 160, 255, 0.15);
-    margin-right: 8px;
+#custom-ws1,
+#custom-ws2,
+#custom-ws3,
+#custom-ws4,
+#custom-ws5 {
+    padding: 5px 8px;
+    font-size: 9px;
+    color: rgba(120, 165, 255, 0.48);
+    border-radius: 8px;
+    margin: 2px 1px;
+    transition: background 0.14s, color 0.14s;
 }
 
-/* ── Taskbar (open windows) ────────────────────────────────────────────── */
-
-#taskbar {
-    background: transparent;
-    padding: 4px 8px;
+#custom-ws1:hover,
+#custom-ws2:hover,
+#custom-ws3:hover,
+#custom-ws4:hover,
+#custom-ws5:hover {
+    background: rgba(240, 168, 48, 0.14);
+    color: #f0a830;
 }
 
-#taskbar button {
-    padding: 2px 10px;
-    border-radius: 6px;
-    color: rgba(200, 220, 255, 0.75);
-    transition: background 0.15s, color 0.15s;
-    margin: 0 2px;
-    background: transparent;
-    border: 1px solid transparent;
-}
-
-#taskbar button:hover {
-    background: rgba(100, 160, 255, 0.18);
-    color: #e8f4ff;
-    border-color: rgba(100, 160, 255, 0.30);
-}
-
-#taskbar button.active {
-    background: rgba(80, 140, 255, 0.28);
-    color: #ffffff;
-    border-color: rgba(120, 180, 255, 0.50);
-}
-
-/* ── Right-side modules ────────────────────────────────────────────────── */
+/* ── Right modules ─────────────────────────────────────────────────────── */
 
 #cpu,
 #memory,
 #pulseaudio,
 #network,
 #battery,
-#clock,
 #tray {
-    padding: 4px 10px;
-    color: #c8dcff;
+    padding: 4px 9px;
+    color: #c0d4ff;
 }
 
-#cpu    { color: rgba(180, 210, 255, 0.80); }
-#memory { color: rgba(160, 200, 255, 0.70); }
+#cpu    { color: rgba(175, 210, 255, 0.80); }
+#memory { color: rgba(150, 195, 255, 0.70); }
 
-#pulseaudio.muted { color: rgba(180, 200, 255, 0.35); }
-
-#network.disconnected { color: rgba(180, 200, 255, 0.40); }
+#pulseaudio.muted   { color: rgba(150, 180, 255, 0.35); }
+#network.disconnected { color: rgba(150, 180, 255, 0.40); }
 
 /* Battery states */
-#battery            { color: #90e0b0; }
-#battery.warning    { color: #ffe090; }
-#battery.critical   {
-    color: #ff8080;
-    animation: blink 1s steps(1) infinite;
+#battery           { color: #72dfc0; }
+#battery.warning   { color: #f5c842; }
+#battery.critical  {
+    color: #ff7575;
+    animation: blink 0.9s steps(1) infinite;
 }
+@keyframes blink { 50% { color: rgba(255,255,255,0.85); } }
 
-@keyframes blink { 50% { color: #ffffff; } }
+/* ── Center clock island ───────────────────────────────────────────────── */
 
-/* Clock — slightly brighter, light separator on left */
 #clock {
-    color: #ddeeff;
-    font-weight: 500;
-    font-size: 13.5px;
-    padding: 4px 14px;
-    border-left: 1px solid rgba(100, 160, 255, 0.20);
-    border-right: 1px solid rgba(100, 160, 255, 0.20);
-    margin: 0 2px;
+    color: #eaf2ff;
+    font-weight: 600;
+    font-size: 13px;
+    padding: 5px 20px;
+    letter-spacing: 0.4px;
 }
+
+/* ── Tray ──────────────────────────────────────────────────────────────── */
 
 #tray {
-    padding: 4px 10px;
+    padding: 4px 9px;
 }
 
 #tray > .passive { -gtk-icon-effect: dim; }
 
-/* Tooltips */
+/* ── Tooltips ──────────────────────────────────────────────────────────── */
+
 tooltip {
-    background: rgba(10, 20, 50, 0.92);
-    border: 1px solid rgba(80, 140, 255, 0.35);
-    border-radius: 8px;
-    color: #cce0ff;
+    background: rgba(7, 14, 40, 0.96);
+    border: 1px solid rgba(80, 140, 255, 0.36);
+    border-radius: 10px;
+    color: #c4dcff;
     font-size: 12px;
-    padding: 4px 8px;
+    padding: 5px 10px;
 }
