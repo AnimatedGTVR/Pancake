@@ -1,3 +1,9 @@
+<p align="center">
+  <img src="pancakes.png" alt="Pancake Logo" width="180">
+</p>
+
+
+
 # Pancake
 
 **The sweetest, smoothest desktop environment.**
