@@ -1,12 +1,18 @@
-<p align="center">
-  <img src="pancakes.png" alt="Pancake Logo" width="180">
+<<p align="center">
+  <img src="./pancakes.png" alt="Pancake Logo" width="240">
 </p>
 
+<h1 align="center">Pancake</h1>
 
+<p align="center">
+  <b>The sweetest, smoothest desktop environment.</b>
+</p>
 
-# Pancake
+<p align="center">
+  <i>A Wayland compositor with Aero-COSMIC glass vibes.</i>
+</p>
 
-**The sweetest, smoothest desktop environment.**
+---
 
 Pancake is a Wayland compositor written in Rust and built on [Smithay](https://github.com/Smithay/smithay).
 
