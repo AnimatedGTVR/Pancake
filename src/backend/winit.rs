@@ -139,6 +139,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             let mut frame = renderer.render(&mut framebuffer, size, Transform::Flipped180)?;
             if state.renderer.blurred_background().is_some() {
                 state.renderer.draw_background(&mut frame)?;
+                // Frosted glass panels behind each window
+                for window in state.space.elements() {
+                    if let Some(geo) = state.space.element_geometry(window) {
+                        let _ = state.renderer.draw_glass_rect(&mut frame, geo, size.h as i32);
+                    }
+                }
             } else {
                 frame.clear(Color32F::new(0.05, 0.08, 0.18, 1.0), &[damage])?;
             }
