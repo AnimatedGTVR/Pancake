@@ -1,4 +1,4 @@
-<<p align="center">
+<p align="center">
   <img src="./pancakes.png" alt="Pancake Logo" width="240">
 </p>
 
