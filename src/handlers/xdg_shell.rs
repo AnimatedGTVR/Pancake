@@ -29,7 +29,6 @@ impl XdgShellHandler for PancakeState {
         );
         surface.with_pending_state(|state| {
             state.states.set(xdg_toplevel::State::Activated);
-            // Let the client choose its own initial size; only provide bounds.
             state.size = None;
         });
         surface.send_configure();
@@ -39,13 +38,18 @@ impl XdgShellHandler for PancakeState {
         self.space.map_element(window.clone(), geometry.loc, true);
         self.space.raise_element(&window, true);
 
-        // Register in the active workspace
-        self.workspaces.add_window(window.clone(), geometry.loc);
+        // Register in the active workspace (pass current focused so BSP splits it)
+        let prev_focused = self.focused_window.clone();
+        self.workspaces.add_window(window.clone(), geometry.loc, prev_focused.as_ref());
 
         if let Some(keyboard) = self.seat.get_keyboard() {
             keyboard.set_focus(self, Some(focus_surface), SERIAL_COUNTER.next_serial());
         }
         self.focused_window = Some(window);
+
+        // Retile if workspace is in tiling mode
+        self.retile();
+
         tracing::info!(
             "Workspace {}: {} windows",
             self.workspaces.active + 1,
@@ -73,6 +77,8 @@ impl XdgShellHandler for PancakeState {
             }
             self.workspaces.remove_window(&w);
             self.space.unmap_elem(&w);
+            // Retile to fill the vacated slot
+            self.retile();
         }
     }
 

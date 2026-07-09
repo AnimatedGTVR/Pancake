@@ -88,9 +88,19 @@ printf "  Wayland socket: %s\n" "$WAYLAND_DISPLAY"
 
 # ── Launch desktop components ─────────────────────────────────────────────────
 
-# Wallpaper
+# Wallpaper — prefer image files in /etc/pancake/wallpapers/, fall back to solid color
+WP_DIR="/etc/pancake/wallpapers"
+WP_FILE=""
+if [ -d "$WP_DIR" ]; then
+    WP_FILE=$(find "$WP_DIR" -maxdepth 1 \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.webp' \) \
+              2>/dev/null | shuf -n1 || true)
+fi
 if command -v swaybg >/dev/null 2>&1; then
-    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" swaybg -c "#0a1628" &
+    if [ -n "$WP_FILE" ]; then
+        WAYLAND_DISPLAY="$WAYLAND_DISPLAY" swaybg -i "$WP_FILE" -m fill &
+    else
+        WAYLAND_DISPLAY="$WAYLAND_DISPLAY" swaybg -c "#0a1628" &
+    fi
 fi
 
 # Notification daemon
@@ -128,9 +138,11 @@ if command -v notify-send >/dev/null 2>&1; then
     WAYLAND_DISPLAY="$WAYLAND_DISPLAY" notify-send \
         --icon=dialog-information \
         --urgency=low \
-        --expire-time=5000 \
+        --expire-time=8000 \
         "Welcome to Pancake" \
-        "Super+Enter: terminal  ·  Super+D: apps  ·  Super+Q: close  ·  Super+L: lock  ·  Print: screenshot  ·  Super+1-9: workspaces"
+        "Super+Enter: terminal  ·  Super+D: apps  ·  Super+Q: close
+Super+Space: toggle tiling  ·  Super+Arrows: focus tile  ·  Super+Ctrl+Arrows: resize tile
+Super+Shift+Arrows: swap tiles  ·  Super+L: lock  ·  Print: screenshot  ·  Super+1-9: workspaces"
 fi
 
 # Wait for the compositor to exit

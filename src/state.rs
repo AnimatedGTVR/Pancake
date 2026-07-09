@@ -29,7 +29,7 @@ use smithay::{
 
 use crate::config::{Config, RELOAD_REQUESTED};
 use crate::render::AeroRenderer;
-use crate::shell::workspace::WorkspaceManager;
+use crate::shell::{workspace::WorkspaceManager, NavDir};
 
 // ── Per-client state ────────────────────────────────────────────────────────
 
@@ -149,6 +149,65 @@ impl PancakeState {
         self.config = Config::load();
         self.renderer.apply_config(&self.config);
         tracing::info!("Config reloaded");
+    }
+
+    /// Get the primary output geometry.
+    pub fn output_geo(&self) -> Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>> {
+        self.space.outputs().next().and_then(|o| self.space.output_geometry(o))
+    }
+
+    /// Re-apply the BSP tiling layout for the active workspace.
+    /// No-op when the workspace is in floating mode.
+    pub fn retile(&mut self) {
+        if let Some(geo) = self.output_geo() {
+            self.workspaces.apply_tiles(&mut self.space, geo);
+        }
+    }
+
+    /// Toggle tiling on the active workspace and re-layout.
+    pub fn toggle_tiling(&mut self) {
+        if let Some(geo) = self.output_geo() {
+            self.workspaces.toggle_tiling(&mut self.space, geo);
+        }
+    }
+
+    /// Move keyboard focus to the neighboring tile in `dir` (tiling mode only).
+    pub fn focus_tile(&mut self, dir: NavDir, serial: smithay::utils::Serial) {
+        let focused = match self.focused_window.clone() { Some(w) => w, None => return };
+        let geo = match self.output_geo() { Some(g) => g, None => return };
+        let neighbor = self.workspaces.tile_neighbor(&focused, dir, geo);
+        if let Some(win) = neighbor {
+            self.space.raise_element(&win, true);
+            use smithay::wayland::seat::WaylandFocus;
+            if let Some(surf) = win.wl_surface() {
+                if let Some(kb) = self.seat.get_keyboard() {
+                    kb.set_focus(self, Some(surf.into_owned()), serial);
+                }
+            }
+            self.focused_window = Some(win);
+        }
+    }
+
+    /// Swap focused tile with its neighbor in `dir` and re-layout.
+    pub fn swap_tile(&mut self, dir: NavDir) {
+        let focused = match self.focused_window.clone() { Some(w) => w, None => return };
+        let geo = match self.output_geo() { Some(g) => g, None => return };
+        if self.workspaces.swap_neighbor(&focused, dir, geo) {
+            self.workspaces.apply_tiles(&mut self.space, geo);
+        }
+    }
+
+    /// Resize focused tile by moving the split ratio.
+    pub fn resize_tile(&mut self, dir: NavDir) {
+        const STEP: f32 = 0.05;
+        let focused = match self.focused_window.clone() { Some(w) => w, None => return };
+        let geo = match self.output_geo() { Some(g) => g, None => return };
+        let delta = match dir {
+            NavDir::Right | NavDir::Down => STEP,
+            NavDir::Left  | NavDir::Up   => -STEP,
+        };
+        self.workspaces.adjust_ratio(&focused, delta);
+        self.workspaces.apply_tiles(&mut self.space, geo);
     }
 
     /// Check if a SIGHUP-triggered reload is pending and, if so, reload.

@@ -27,7 +27,7 @@ impl XwmHandler for PancakeState {
     fn map_window_request(&mut self, _xwm: smithay::xwayland::xwm::XwmId, window: X11Surface) {
         window.set_mapped(true).ok();
         let w = Window::new_x11_window(window);
-        let pos = layout::initial_position(&self.space);
+        let pos = layout::initial_geometry(&self.space).loc;
         self.space.map_element(w, pos, true);
     }
 

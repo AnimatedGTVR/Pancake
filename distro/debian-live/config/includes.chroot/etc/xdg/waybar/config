@@ -10,6 +10,7 @@
 
     "modules-left": [
         "custom/start",
+        "custom/sep",
         "custom/ws1",
         "custom/ws2",
         "custom/ws3",
@@ -27,64 +28,78 @@
         "pulseaudio",
         "network",
         "battery",
-        "tray"
+        "tray",
+        "custom/session"
     ],
 
     "custom/start": {
         "format": "🥞",
-        "tooltip": "Super+D  open apps\nSuper+Enter  terminal\nSuper+Q  close window",
+        "tooltip": "Pancake DE\n\nSuper+D       apps\nSuper+Enter   terminal\nSuper+Q       close\nSuper+Space   toggle tiling\nSuper+Arrows  focus tile\nSuper+1–9     workspaces",
         "on-click": "wofi --show drun"
     },
 
-    "custom/ws1": { "format": "⬤", "tooltip": "Workspace 1", "on-click": "" },
-    "custom/ws2": { "format": "⬤", "tooltip": "Workspace 2", "on-click": "" },
-    "custom/ws3": { "format": "⬤", "tooltip": "Workspace 3", "on-click": "" },
-    "custom/ws4": { "format": "⬤", "tooltip": "Workspace 4", "on-click": "" },
-    "custom/ws5": { "format": "⬤", "tooltip": "Workspace 5", "on-click": "" },
+    "custom/sep": {
+        "format": "│",
+        "tooltip": false
+    },
+
+    "custom/ws1": { "format": "⬤", "tooltip": "Workspace 1 (Super+1)", "on-click": "" },
+    "custom/ws2": { "format": "⬤", "tooltip": "Workspace 2 (Super+2)", "on-click": "" },
+    "custom/ws3": { "format": "⬤", "tooltip": "Workspace 3 (Super+3)", "on-click": "" },
+    "custom/ws4": { "format": "⬤", "tooltip": "Workspace 4 (Super+4)", "on-click": "" },
+    "custom/ws5": { "format": "⬤", "tooltip": "Workspace 5 (Super+5)", "on-click": "" },
 
     "clock": {
         "format": "{:%H:%M}",
-        "format-alt": "{:%a %d %b}",
+        "format-alt": "{:%a %d %b · %H:%M}",
         "tooltip-format": "<tt>{calendar}</tt>"
     },
 
     "cpu": {
         "format": "⬡ {usage}%",
         "interval": 3,
-        "tooltip": false
+        "tooltip-format": "CPU: {usage}%\nFrequency: {avg_frequency} GHz"
     },
 
     "memory": {
         "format": "▪ {used:0.1f}G",
-        "tooltip": false
+        "tooltip-format": "RAM: {used:0.1f} / {total:0.1f} GiB"
     },
 
     "pulseaudio": {
         "format": "{icon} {volume}%",
-        "format-muted": "✕",
+        "format-muted": "✕ muted",
         "format-icons": { "default": ["▁", "▄", "█"] },
         "on-click": "pamixer -t",
-        "tooltip": false
+        "on-click-right": "pavucontrol",
+        "tooltip-format": "{desc}: {volume}%"
     },
 
     "network": {
         "format-wifi": "  {signalStrength}%",
-        "format-ethernet": "⬡ eth",
-        "format-disconnected": "✕",
-        "tooltip-format": "{ifname}: {ipaddr}\n{essid}",
+        "format-ethernet": "⬡ {ipaddr}",
+        "format-disconnected": "✕ offline",
+        "tooltip-format": "{ifname}: {ipaddr}\n{essid} ({signalStrength}%)",
         "interval": 5
     },
 
     "battery": {
         "format": "{icon} {capacity}%",
         "format-charging": "⚡ {capacity}%",
+        "format-full": "█ full",
         "format-icons": ["▁", "▂", "▄", "▆", "█"],
         "states": { "warning": 30, "critical": 15 },
-        "tooltip": false
+        "tooltip-format": "{capacity}% · {timeTo}"
     },
 
     "tray": {
         "icon-size": 15,
-        "spacing": 5
+        "spacing": 6
+    },
+
+    "custom/session": {
+        "format": "⏻",
+        "tooltip": "Session\n\nLock: Super+L\nLogout: wlogout",
+        "on-click": "wlogout --protocol layer-shell 2>/dev/null || swaylock -f -c 0d1a33"
     }
 }

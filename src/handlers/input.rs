@@ -14,6 +14,7 @@ use smithay::{
 };
 use wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge;
 
+use crate::shell::NavDir;
 use crate::state::{PancakeState, SnapDirection};
 
 // ── SeatHandler ─────────────────────────────────────────────────────────────
@@ -134,6 +135,12 @@ impl PancakeState {
                         return FilterResult::Intercept(());
                     }
 
+                    // ── Super+Space — toggle tiling / floating ───────────────
+                    if mods.logo && keysym.modified_sym() == Keysym::space {
+                        state.toggle_tiling();
+                        return FilterResult::Intercept(());
+                    }
+
                     // ── Super+Tab — cycle focus ──────────────────────────────
                     if mods.logo && keysym.modified_sym() == Keysym::Tab {
                         state.cycle_focus(serial);
@@ -165,18 +172,62 @@ impl PancakeState {
                         return FilterResult::Intercept(());
                     }
 
-                    // ── Super+arrows — window snapping (Hyprland-style) ──────
-                    if mods.logo {
-                        let dir = match keysym.modified_sym() {
-                            Keysym::Left  => Some(SnapDirection::Left),
-                            Keysym::Right => Some(SnapDirection::Right),
-                            Keysym::Up    => Some(SnapDirection::Up),
-                            Keysym::Down  => Some(SnapDirection::Down),
+                    // ── Super+arrows — tiling focus nav or floating snap ─────
+                    if mods.logo && !mods.shift && !mods.ctrl {
+                        let nav = match keysym.modified_sym() {
+                            Keysym::Left  => Some(NavDir::Left),
+                            Keysym::Right => Some(NavDir::Right),
+                            Keysym::Up    => Some(NavDir::Up),
+                            Keysym::Down  => Some(NavDir::Down),
                             _ => None,
                         };
-                        if let Some(d) = dir {
-                            state.snap_focused(d);
+                        if let Some(d) = nav {
+                            if state.workspaces.is_tiling() {
+                                state.focus_tile(d, serial);
+                            } else {
+                                let sd = match d {
+                                    NavDir::Left  => SnapDirection::Left,
+                                    NavDir::Right => SnapDirection::Right,
+                                    NavDir::Up    => SnapDirection::Up,
+                                    NavDir::Down  => SnapDirection::Down,
+                                };
+                                state.snap_focused(sd);
+                            }
                             return FilterResult::Intercept(());
+                        }
+                    }
+
+                    // ── Super+Shift+arrows — swap tiles (tiling only) ────────
+                    if mods.logo && mods.shift && !mods.ctrl {
+                        let nav = match keysym.modified_sym() {
+                            Keysym::Left  => Some(NavDir::Left),
+                            Keysym::Right => Some(NavDir::Right),
+                            Keysym::Up    => Some(NavDir::Up),
+                            Keysym::Down  => Some(NavDir::Down),
+                            _ => None,
+                        };
+                        if let Some(d) = nav {
+                            if state.workspaces.is_tiling() {
+                                state.swap_tile(d);
+                                return FilterResult::Intercept(());
+                            }
+                        }
+                    }
+
+                    // ── Super+Ctrl+arrows — resize tile ──────────────────────
+                    if mods.logo && mods.ctrl && !mods.shift {
+                        let nav = match keysym.modified_sym() {
+                            Keysym::Left  => Some(NavDir::Left),
+                            Keysym::Right => Some(NavDir::Right),
+                            Keysym::Up    => Some(NavDir::Up),
+                            Keysym::Down  => Some(NavDir::Down),
+                            _ => None,
+                        };
+                        if let Some(d) = nav {
+                            if state.workspaces.is_tiling() {
+                                state.resize_tile(d);
+                                return FilterResult::Intercept(());
+                            }
                         }
                     }
 
@@ -330,6 +381,67 @@ impl PancakeState {
                 let logo_held = self.seat.get_keyboard()
                     .map(|kb| kb.modifier_state().logo)
                     .unwrap_or(false);
+
+                // LMB: check decoration hit test FIRST
+                if event.button_code() == 0x110u32 {
+                    use crate::render::decorations::{hit_test, DecoHit};
+                    if let Some(hit) = hit_test(&self.space, location) {
+                        let hit_win = match &hit {
+                            DecoHit::Close(w) | DecoHit::Minimize(w)
+                            | DecoHit::Maximize(w) | DecoHit::TitleBar(w) => w.clone(),
+                        };
+                        match hit {
+                            DecoHit::Close(win) => {
+                                if let Some(t) = win.toplevel() { t.send_close(); }
+                            }
+                            DecoHit::Maximize(win) => {
+                                if let Some(geo) = self.output_geo() {
+                                    if let Some(t) = win.toplevel() {
+                                        t.with_pending_state(|s| {
+                                            s.states.set(wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized);
+                                            s.size = Some(geo.size);
+                                        });
+                                        t.send_pending_configure();
+                                        self.space.map_element(win.clone(), geo.loc, true);
+                                    }
+                                }
+                            }
+                            DecoHit::Minimize(_win) => {
+                                // TODO: minimise to taskbar
+                            }
+                            DecoHit::TitleBar(win) => {
+                                let win_loc = self.space.element_geometry(&win)
+                                    .map(|g| g.loc)
+                                    .unwrap_or_default();
+                                let offset = Point::<f64, Logical>::from((
+                                    location.x - win_loc.x as f64,
+                                    location.y - win_loc.y as f64,
+                                ));
+                                self.move_grab = Some((win.clone(), offset));
+                                self.space.raise_element(&win, true);
+                                self.focused_window = Some(win.clone());
+                            }
+                        }
+                        // Focus the hit window
+                        use smithay::wayland::seat::WaylandFocus;
+                        if let Some(surf) = hit_win.wl_surface() {
+                            if let Some(kb) = self.seat.get_keyboard() {
+                                kb.set_focus(self, Some(surf.into_owned()), serial);
+                            }
+                        }
+                        // Unconditional assignment: get_or_insert would leave
+                        // focused_window stale (pointing at whatever window
+                        // was focused before) when clicking a decoration
+                        // button on a window that wasn't already focused,
+                        // even though keyboard focus was just moved above.
+                        self.focused_window = Some(hit_win);
+                        pointer.button(self, &ButtonEvent {
+                            button: event.button_code(), state: event.state(), serial, time: event.time_msec(),
+                        });
+                        pointer.frame(self);
+                        return;
+                    }
+                }
 
                 // Super+LMB → interactive move (0x110 = BTN_LEFT)
                 if event.button_code() == 0x110u32 && logo_held {

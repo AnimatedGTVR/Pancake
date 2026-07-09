@@ -1,6 +1,7 @@
 pub mod aero;
 pub mod cursor;
 pub mod borders;
+pub mod decorations;
 
 pub use aero::AeroRenderer;
 

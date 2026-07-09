@@ -77,6 +77,27 @@ window#waybar {
 
 /* ── Right modules ─────────────────────────────────────────────────────── */
 
+#custom-sep {
+    color: rgba(75, 135, 255, 0.30);
+    padding: 0 4px;
+    font-size: 14px;
+}
+
+#custom-session {
+    padding: 4px 12px;
+    color: rgba(175, 210, 255, 0.65);
+    font-size: 14px;
+    border-left: 1px solid rgba(75, 135, 255, 0.18);
+    margin-left: 3px;
+    transition: background 0.16s, color 0.16s;
+}
+
+#custom-session:hover {
+    color: #e05c5c;
+    background: rgba(224, 92, 92, 0.14);
+    border-radius: 0 11px 11px 0;
+}
+
 #cpu,
 #memory,
 #pulseaudio,
