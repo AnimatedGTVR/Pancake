@@ -42,11 +42,17 @@ xwayland
 # ── Terminal ──────────────────────────────────────────────────────────────────
 foot
 
+# ── Compositor (from trixie-backports — see config/archives/) ────────────────
+hyprland
+xdg-desktop-portal-hyprland
+xdg-desktop-portal
+
 # ── Pancake desktop ───────────────────────────────────────────────────────────
 waybar
 wofi
 dunst
 libnotify-bin
+polkit-kde-agent-1
 xdg-utils
 dbus-x11
 swaybg

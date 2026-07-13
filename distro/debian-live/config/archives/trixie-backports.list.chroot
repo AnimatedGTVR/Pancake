@@ -1,0 +1,11 @@
+# hyprland is not packaged in trixie's main archive — only in backports.
+# hyprland itself resolves here automatically since it's the only place the
+# package exists, but several of ITS dependencies (libxkbcommon0,
+# libgl1-mesa-dri, etc.) exist in BOTH main and backports at versions too old
+# in main to satisfy hyprland's requirements — apt defaults to preferring the
+# main-archive version of a shared dependency unless told otherwise, so
+# trixie-backports.pref.chroot pins backports to priority 500 (on par with a
+# normal archive) rather than backports' own default priority of 100, which
+# is too low for the solver to pick a backports version to satisfy a hard
+# dependency it could otherwise only fail on.
+deb http://deb.debian.org/debian trixie-backports main

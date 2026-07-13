@@ -1,0 +1,56 @@
+#!/bin/sh
+set -eu
+
+# Build Hyprland + its hypr* sub-libraries from source for Ubuntu (noble).
+#
+# Ubuntu has no viable packaged Hyprland for this release, and upstream
+# explicitly warns that building on Ubuntu at all "is not guaranteed to
+# work... likely to break at some point" as Ubuntu's shipped dependency
+# versions age. This is a known, accepted risk of targeting Ubuntu — Debian
+# (trixie) uses the much simpler official-backports path instead; see
+# config/archives/trixie-backports.list.chroot in the debian-live tree.
+#
+# Hyprland's CMakeLists.txt requires these hypr* libraries pre-installed and
+# discoverable via pkg-config (not auto-fetched by its own build) — so each
+# is built and installed in dependency order before Hyprland itself.
+#
+# Pinned to tagged releases (matching or exceeding Hyprland's own stated
+# minimum versions in its CMakeLists.txt) rather than main/HEAD, so a rebuild
+# next month doesn't silently pick up breaking upstream changes.
+
+BUILD_DIR="$(mktemp -d)"
+trap 'rm -rf "$BUILD_DIR"' EXIT
+
+build_cmake_project() {
+    repo="$1"
+    tag="$2"
+    echo "==> Building $repo ($tag)"
+    git clone --recursive --depth 1 --branch "$tag" \
+        "https://github.com/hyprwm/$repo" "$BUILD_DIR/$repo"
+    cmake -S "$BUILD_DIR/$repo" -B "$BUILD_DIR/$repo/build" \
+        -DCMAKE_BUILD_TYPE=Release --no-warn-unused-cli
+    cmake --build "$BUILD_DIR/$repo/build" -j"$(nproc)"
+    cmake --install "$BUILD_DIR/$repo/build"
+    ldconfig
+}
+
+# Build-only tool, needed by several of the libraries below.
+build_cmake_project hyprwayland-scanner v0.4.6
+
+# Dependency order: hyprutils first (the others depend on it), then the
+# four libraries Hyprland itself requires directly, then Hyprland.
+build_cmake_project hyprutils     v0.13.1
+build_cmake_project aquamarine    v0.12.1
+build_cmake_project hyprlang      v0.6.8
+build_cmake_project hyprcursor    v0.1.13
+build_cmake_project hyprgraphics  v0.5.1
+
+echo "==> Building Hyprland (v0.55.4)"
+git clone --recursive --depth 1 --branch v0.55.4 \
+    https://github.com/hyprwm/Hyprland "$BUILD_DIR/Hyprland"
+cd "$BUILD_DIR/Hyprland"
+make all
+make install
+ldconfig
+
+echo "==> Hyprland build complete: $(command -v Hyprland || echo 'NOT FOUND ON PATH')"

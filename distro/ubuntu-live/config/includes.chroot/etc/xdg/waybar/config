@@ -11,11 +11,7 @@
     "modules-left": [
         "custom/start",
         "custom/sep",
-        "custom/ws1",
-        "custom/ws2",
-        "custom/ws3",
-        "custom/ws4",
-        "custom/ws5"
+        "hyprland/workspaces"
     ],
 
     "modules-center": [
@@ -34,7 +30,7 @@
 
     "custom/start": {
         "format": "🥞",
-        "tooltip": "Pancake DE\n\nSuper+D       apps\nSuper+Enter   terminal\nSuper+Q       close\nSuper+Space   toggle tiling\nSuper+Arrows  focus tile\nSuper+1–9     workspaces",
+        "tooltip": "Pancake DE\n\nSuper+D       apps\nSuper+Enter   terminal\nSuper+Q       close\nSuper+T       toggle floating/tiling\nSuper+Arrows  focus\nSuper+1–9     workspaces",
         "on-click": "wofi --show drun"
     },
 
@@ -43,11 +39,12 @@
         "tooltip": false
     },
 
-    "custom/ws1": { "format": "⬤", "tooltip": "Workspace 1 (Super+1)", "on-click": "" },
-    "custom/ws2": { "format": "⬤", "tooltip": "Workspace 2 (Super+2)", "on-click": "" },
-    "custom/ws3": { "format": "⬤", "tooltip": "Workspace 3 (Super+3)", "on-click": "" },
-    "custom/ws4": { "format": "⬤", "tooltip": "Workspace 4 (Super+4)", "on-click": "" },
-    "custom/ws5": { "format": "⬤", "tooltip": "Workspace 5 (Super+5)", "on-click": "" },
+    "hyprland/workspaces": {
+        "format": "{icon}",
+        "format-icons": { "default": "⬤", "active": "⬤", "empty": "○" },
+        "on-click": "activate",
+        "persistent-workspaces": { "1": [], "2": [], "3": [], "4": [], "5": [] }
+    },
 
     "clock": {
         "format": "{:%H:%M}",

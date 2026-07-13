@@ -37,6 +37,8 @@ libevdev2
 libmtdev1
 libwayland-server0
 libwayland-client0
+libwayland-dev
+wayland-protocols
 libxkbcommon0
 xkb-data
 xwayland
@@ -44,11 +46,63 @@ xwayland
 # ── Terminal ──────────────────────────────────────────────────────────────────
 foot
 
+# ── Hyprland build dependencies ───────────────────────────────────────────────
+# Ubuntu (noble) has no viable packaged Hyprland — upstream explicitly advises
+# against Ubuntu's packaged versions where they exist at all. Built from source
+# in config/hooks/normal/030-build-hyprland.hook.chroot instead. Upstream's own
+# docs warn this path "is not guaranteed to work... likely to break at some
+# point" as Ubuntu's dependency versions age — a known, accepted risk of
+# targeting Ubuntu at all, not something fixable from this side.
+git
+meson
+ninja-build
+cmake
+cmake-extras
+build-essential
+gettext
+fontconfig
+libfontconfig-dev
+libffi-dev
+libxml2-dev
+libdrm-dev
+libxkbcommon-x11-dev
+libxkbregistry-dev
+libxkbcommon-dev
+libpixman-1-dev
+libudev-dev
+libseat-dev
+libxcb-dri3-dev
+libegl-dev
+libegl1-mesa-dev
+glslang-tools
+libinput-bin
+libinput-dev
+libxcb-composite0-dev
+libavutil-dev
+libavcodec-dev
+libavformat-dev
+libxcb-ewmh2
+libxcb-ewmh-dev
+libxcb-present-dev
+libxcb-icccm4-dev
+libxcb-render-util0-dev
+libxcb-res0-dev
+libxcb-xinput-dev
+libtomlplusplus3
+libre2-dev
+
+# xdg-desktop-portal-hyprland isn't packaged for Ubuntu either — xdg-desktop-portal-wlr
+# is the simpler, packaged screen-sharing portal fallback used here instead of also
+# building xdph from source.
+xdg-desktop-portal
+xdg-desktop-portal-wlr
+
 # ── Pancake desktop ───────────────────────────────────────────────────────────
 waybar
 wofi
 dunst
 libnotify-bin
+polkit-kde-agent-1
 xdg-utils
 dbus-x11
 swaybg

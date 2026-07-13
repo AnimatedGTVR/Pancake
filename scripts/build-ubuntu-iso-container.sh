@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Build a Pancake Ubuntu Live ISO inside a container.
 #
+# Pancake now runs on Hyprland (built from source inside the chroot by
+# config/hooks/normal/030-build-hyprland.hook.chroot) instead of the old
+# custom Rust/Smithay compositor, so there is no Cargo build step here
+# anymore — the old compositor's source is archived, not part of the ISO.
+#
 # Speed optimisations vs. the naive approach:
-#   • Reuses the host-compiled binary (skips full Rust rebuild if possible)
 #   • Mounts the host cargo registry + build cache so crates aren't re-fetched
 #   • Passes an apt-cacher-ng proxy if one is detected on the host
 #   • Supports PANCAKE_ISO_COMPRESSION=none for faster local test images
@@ -14,32 +18,12 @@ export DEBIAN_FRONTEND=noninteractive
 ISO_OUT="${ISO_OUT:-iso/out/ubuntu}"
 UBUNTU_PROFILE="distro/ubuntu-live"
 UBUNTU_WORK="/tmp/pancake-ubuntu-live"
-PANCAKE_BIN="target/release/pancake"
 
 echo "==> Installing build deps..."
 apt-get update -qq
 apt-get install -y --no-install-recommends \
     ca-certificates curl file live-build \
-    syslinux-utils isolinux syslinux-common xorriso \
-    build-essential pkg-config \
-    libwayland-dev libinput-dev libdrm-dev libgbm-dev \
-    libegl-dev libgles-dev libseat-dev libxkbcommon-dev \
-    libudev-dev libpixman-1-dev libsystemd-dev
-
-# ── Pancake binary ────────────────────────────────────────────────────────────
-# Always compile inside the container so the binary links against Ubuntu Noble's
-# glibc (2.39). Reusing a host binary built on Arch/Fedora/etc. would produce a
-# "GLIBC_X.YY not found" error at runtime on the ISO.
-# The mounted cargo registry means crates aren't re-downloaded on repeat builds.
-echo "==> Compiling Pancake inside Ubuntu Noble container (glibc compatibility)..."
-if [ ! -f "$HOME/.cargo/bin/cargo" ]; then
-    curl --proto '=https' --tlsv1.2 -fsS https://sh.rustup.rs \
-        | sh -s -- -y --profile minimal --default-toolchain stable
-fi
-export PATH="$HOME/.cargo/bin:$PATH"
-# Limit parallel jobs to avoid OOM on weak laptops
-CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(nproc)}"
-cargo build --release -j "$CARGO_BUILD_JOBS"
+    syslinux-utils isolinux syslinux-common xorriso
 
 # ── Stage files ───────────────────────────────────────────────────────────────
 rm -rf "$UBUNTU_WORK"
@@ -56,8 +40,6 @@ rm -rf \
     "$UBUNTU_WORK/config/chroot" \
     "$UBUNTU_WORK/config/common" \
     "$UBUNTU_WORK/config/source"
-install -Dm755 "$PANCAKE_BIN" \
-    "$UBUNTU_WORK/config/includes.chroot/usr/local/bin/pancake"
 
 if [ -d "$UBUNTU_WORK/config/hooks/normal" ]; then
     for hook in "$UBUNTU_WORK"/config/hooks/normal/*.hook.chroot; do

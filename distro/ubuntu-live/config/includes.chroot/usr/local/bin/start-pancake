@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export RUST_LOG="${RUST_LOG:-pancake=warn,smithay=warn}"
-export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
 export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
 
@@ -17,12 +15,12 @@ mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
 # ── Deploy default configs on first boot ─────────────────────────────────────
-PANCAKE_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/pancake"
-mkdir -p "$PANCAKE_CFG_DIR"
+HYPR_CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
+mkdir -p "$HYPR_CFG_DIR"
 
-# Pancake compositor config
-if [ ! -f "$PANCAKE_CFG_DIR/config.confi" ] && [ -f /etc/pancake/config.confi ]; then
-    cp /etc/pancake/config.confi "$PANCAKE_CFG_DIR/config.confi"
+# Pancake's Hyprland config
+if [ ! -f "$HYPR_CFG_DIR/hyprland.conf" ] && [ -f /etc/hypr/hyprland.conf ]; then
+    cp /etc/hypr/hyprland.conf "$HYPR_CFG_DIR/hyprland.conf"
 fi
 
 # Waybar config (copy to user config only if not already customised)
@@ -58,93 +56,9 @@ if command -v systemctl >/dev/null 2>&1; then
         || true
 fi
 
-# ── Launch Pancake compositor ─────────────────────────────────────────────────
-printf 'Starting Pancake...\nLogs: /tmp/pancake.log\n\n'
-
-pancake --tty 1 > /tmp/pancake.log 2>&1 &
-PANCAKE_PID=$!
-
-# Wait for any wayland-N socket to appear (pancake picks the first free slot starting at 0)
-SOCKET=""
-for i in $(seq 1 60); do
-    for n in 0 1 2 3 4; do
-        candidate="$XDG_RUNTIME_DIR/wayland-$n"
-        if [ -S "$candidate" ]; then
-            SOCKET="$candidate"
-            export WAYLAND_DISPLAY="wayland-$n"
-            break 2
-        fi
-    done
-    sleep 0.25
-done
-
-if [ -z "$SOCKET" ]; then
-    printf 'ERROR: Wayland socket not found after 15s. Pancake log:\n'
-    cat /tmp/pancake.log
-    exit 1
-fi
-
-printf "  Wayland socket: %s\n" "$WAYLAND_DISPLAY"
-
-# ── Launch desktop components ─────────────────────────────────────────────────
-
-# Wallpaper — prefer image files in /etc/pancake/wallpapers/, fall back to solid color
-WP_DIR="/etc/pancake/wallpapers"
-WP_FILE=""
-if [ -d "$WP_DIR" ]; then
-    WP_FILE=$(find "$WP_DIR" -maxdepth 1 \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.webp' \) \
-              2>/dev/null | shuf -n1 || true)
-fi
-if command -v swaybg >/dev/null 2>&1; then
-    if [ -n "$WP_FILE" ]; then
-        WAYLAND_DISPLAY="$WAYLAND_DISPLAY" swaybg -i "$WP_FILE" -m fill &
-    else
-        WAYLAND_DISPLAY="$WAYLAND_DISPLAY" swaybg -c "#0a1628" &
-    fi
-fi
-
-# Notification daemon
-if command -v dunst >/dev/null 2>&1; then
-    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" dunst &
-    sleep 0.2
-fi
-
-# Status bar
-if command -v waybar >/dev/null 2>&1; then
-    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" waybar 2>>/tmp/waybar.log &
-    sleep 0.4
-fi
-
-# Network manager applet (if available)
-if command -v nm-applet >/dev/null 2>&1; then
-    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" nm-applet --indicator &
-fi
-
-# PipeWire audio
-if command -v pipewire >/dev/null 2>&1; then
-    pipewire & sleep 0.3
-    pipewire-pulse & sleep 0.2
-    wireplumber & sleep 0.2
-fi
-
-# Terminal — give waybar a moment to paint first
-sleep 0.6
-printf 'Launching foot terminal...\n'
-WAYLAND_DISPLAY="$WAYLAND_DISPLAY" foot &
-
-# Send a welcome notification
-sleep 1.0
-if command -v notify-send >/dev/null 2>&1; then
-    WAYLAND_DISPLAY="$WAYLAND_DISPLAY" notify-send \
-        --icon=dialog-information \
-        --urgency=low \
-        --expire-time=8000 \
-        "Welcome to Pancake" \
-        "Super+Enter: terminal  ·  Super+D: apps  ·  Super+Q: close
-Super+Space: toggle tiling  ·  Super+Arrows: focus tile  ·  Super+Ctrl+Arrows: resize tile
-Super+Shift+Arrows: swap tiles  ·  Super+L: lock  ·  Print: screenshot  ·  Super+1-9: workspaces"
-fi
-
-# Wait for the compositor to exit
-wait "$PANCAKE_PID" || true
-printf '\nPancake exited. Logs at /tmp/pancake.log\n'
+# ── Launch Hyprland ────────────────────────────────────────────────────────────
+# Hyprland's own exec-once directives (in hyprland.conf) now own launching
+# swaybg/dunst/waybar/nm-applet/pipewire — there is no socket-poll or manual
+# component sequencing here anymore, unlike the old compositor's launcher.
+printf 'Starting Pancake (Hyprland)...\n'
+exec Hyprland

@@ -6,35 +6,19 @@ export DEBIAN_FRONTEND=noninteractive
 ISO_OUT="${ISO_OUT:-iso/out/debian}"
 DEBIAN_PROFILE="distro/debian-live"
 DEBIAN_WORK="/tmp/pancake-debian-live"
-PANCAKE_BIN="target/release/pancake"
 
+# Pancake now runs on Hyprland (installed from trixie-backports, see
+# config/archives/trixie-backports.list.chroot) instead of the old custom
+# Rust/Smithay compositor, so there is no Cargo build step here anymore.
 echo "==> Installing build deps..."
 apt-get update -qq
 apt-get install -y --no-install-recommends \
-    ca-certificates curl live-build \
-    build-essential pkg-config \
-    libwayland-dev libinput-dev libdrm-dev libgbm-dev \
-    libegl-dev libgles-dev libseat-dev libxkbcommon-dev \
-    libudev-dev libpixman-1-dev libsystemd-dev
-
-# ── Binary: always compile inside the container ───────────────────────────────
-# Reusing a host binary risks GLIBC version mismatches (e.g. host Arch/glibc 2.43
-# vs Debian Trixie glibc 2.40). Build here to guarantee compat.
-echo "==> Compiling Pancake inside Debian container (glibc compatibility)..."
-if [ ! -f "$HOME/.cargo/bin/cargo" ]; then
-    curl --proto '=https' --tlsv1.2 -fsS https://sh.rustup.rs \
-        | sh -s -- -y --profile minimal --default-toolchain stable
-fi
-export PATH="$HOME/.cargo/bin:$PATH"
-CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(nproc)}"
-cargo build --release -j "$CARGO_BUILD_JOBS"
+    ca-certificates curl live-build
 
 # ── Stage ─────────────────────────────────────────────────────────────────────
 rm -rf "$DEBIAN_WORK"
 mkdir -p "$DEBIAN_WORK" "$ISO_OUT"
 cp -a "$DEBIAN_PROFILE/." "$DEBIAN_WORK/"
-install -Dm755 "$PANCAKE_BIN" \
-    "$DEBIAN_WORK/config/includes.chroot/usr/local/bin/pancake"
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 echo "==> Running lb build..."
