@@ -917,3 +917,40 @@ no-GPU path for real: `server.GpuAvailable` is `false` in this sandbox
 (the known fault, caught cleanly) and `FramesRendered` stays `0`, but
 the frame callback still arrives correctly — proving the degraded path
 is protocol-correct, not just "doesn't crash." **1 new check, passing.**
+
+## `xwayland.rs` scoping — real research, no code yet
+
+`xwayland.rs` was set aside earlier as "a different protocol NWayland
+doesn't cover," which is true but was left too vague to act on later.
+Did the same evidence-based library check already used for
+NWayland/ImageSharp: searched GitHub for a maintained C# X11/XCB
+binding. **Found nothing viable** — every result is either unrelated
+(`core-coin/Xcb.Net` is a blockchain project, name coincidence),
+essentially empty, or dead (`zwcloud/XcbSharp`, 3 stars, archived,
+last touched 2017). Same "searched, found nothing usable" result as
+the earlier DRI.net/WaylandSharp check.
+
+**But that turns out not to matter, for the same reason DRM/GBM/EGL
+didn't need a library either**: `libxcb.so` and `libX11.so` are both
+present here as ordinary shared libraries with stable C APIs — the
+exact situation that made `Pancake.Cn`'s P/Invoke approach work in the
+first place. XWayland isn't a second Wayland server to reimplement;
+it's a real, separate `Xwayland` binary (confirmed installed in this
+sandbox, `xorg-xwayland` 24.1.13) that Pancake spawns and talks to as
+an ordinary X11 *client* speaking core X11 protocol (window
+create/configure/map, property get/set — basic ICCCM/EWMH window-
+manager conventions), not something requiring a from-scratch X server.
+So the real options are the same P/Invoke-against-`libxcb.so` approach
+as the rest of `Pancake.Cn`, or a hand-rolled X11 wire-protocol client
+(same shape as `RawWaylandClient`, but X11's core protocol —
+connection setup handshake, atom interning, typed property formats —
+is enough surface to be comparable in scope to the entire
+`Pancake.Wayland` protocol layer, not a quick add-on).
+
+**Not started — this is scoping only.** Real next step whenever this
+becomes a priority: confirm `libxcb.so`'s core connection/window
+request surface via P/Invoke the same way `Drm.cs`/`Gbm.cs` did,
+spawn the real installed `Xwayland` binary, and verify a connection
+handshake actually completes — same "prove the load-bearing assumption
+for real" discipline as the rest of this project, before committing to
+either the P/Invoke or hand-rolled-protocol path.
