@@ -27,3 +27,7 @@ temp/
 
 # Generated Pancake binary copied into ISO profile
 /iso/profile/airootfs/usr/local/bin/pancake
+
+# .NET build output (C# rewrite, see readmenow.md)
+csharp/*/bin/
+csharp/*/obj/

@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="Pancake.App/Pancake.App.csproj" />
+  <Project Path="Pancake.Cn/Pancake.Cn.csproj" />
+  <Project Path="Pancake.Config/Pancake.Config.csproj" />
+  <Project Path="Pancake.Render/Pancake.Render.csproj" />
+  <Project Path="Pancake.Shell/Pancake.Shell.csproj" />
+  <Project Path="Pancake.Syrup.Smoke/Pancake.Syrup.Smoke.csproj" />
+  <Project Path="Pancake.Syrup/Pancake.Syrup.csproj" />
+  <Project Path="Pancake.Wayland/Pancake.Wayland.csproj" />
+</Solution>
