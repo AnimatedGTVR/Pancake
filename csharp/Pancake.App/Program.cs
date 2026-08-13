@@ -3,11 +3,13 @@
 // deliberately honest here rather than papering over gaps: this wires up
 // everything that's real from this session (PancakeWaylandServer, the
 // Space/WorkspaceManager/CompositorState it now feeds, Pancake.Cn's
-// GBM/EGL/DRM/libinput bring-up) but does NOT claim a fully working
-// compositor -- the actual frame loop connecting a live GPU context to
-// Wayland surface damage to on-screen pixels was never built this
-// session (that's real remaining work, tracked honestly below, not
-// hidden behind a working `--help` output).
+// GBM/EGL/DRM/libinput bring-up, and now the real frame loop tying a
+// live GPU context to AeroRenderer + wl_callback delivery) but does NOT
+// claim a fully working compositor -- real DRM atomic modeset/pageflip
+// (turning a rendered frame into actual on-screen pixels) still isn't
+// built, only enumeration exists in Pancake.Cn.DrmResources. That's
+// real remaining work, tracked honestly below, not hidden behind a
+// working `--help` output.
 
 using Pancake.Config;
 
@@ -46,13 +48,15 @@ static async Task<int> RunUdevBackend()
     await using var server = new Pancake.Wayland.PancakeWaylandServer(socketPath);
     server.Start();
     Log($"Wayland socket: {socketPath}");
+    Log($"GPU device: {(server.GpuAvailable ? "live" : "unavailable (see readmenow.md -- this sandbox's known GPU fault, caught cleanly)")}");
 
-    Log("NOTE: GPU device bring-up (Pancake.Cn.GpuDevice) and the Wayland server " +
-        "(Pancake.Wayland.PancakeWaylandServer) both exist and are verified " +
-        "independently (see readmenow.md), but nothing in this session wired them " +
-        "into a single frame loop -- there is no live rendering yet. A real client " +
-        "can connect and create windows (see the wayland: checks in " +
-        "Pancake.Syrup.Smoke), but nothing draws them to a screen.");
+    Log("NOTE: the frame loop is real (GpuDevice + AeroRenderer + real " +
+        "wl_callback delivery, see readmenow.md), but real DRM atomic modeset/" +
+        "pageflip isn't built -- only enumeration exists in " +
+        "Pancake.Cn.DrmResources -- so even with a live GPU, rendered frames " +
+        "don't reach an actual screen yet. A real client can connect, create " +
+        "windows, and get real frame callbacks (see the wayland: checks in " +
+        "Pancake.Syrup.Smoke).");
 
     Log("Press Ctrl+C to exit.");
     var exitSignal = new ManualResetEventSlim(false);
