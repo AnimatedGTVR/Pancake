@@ -149,6 +149,30 @@ internal sealed class RawWaylandClient : IDisposable
         }
     }
 
+    // wl_surface(surfaceId).frame(new_id) -- opcode 3.
+    public void RequestFrameCallback(uint surfaceId, uint newCallbackId) =>
+        SendMessage(surfaceId, 3, WriteUint(newCallbackId));
+
+    public bool FrameCallbackDone;
+
+    public void WaitForFrameCallback(uint callbackId, int timeoutMs)
+    {
+        _socket.ReceiveTimeout = timeoutMs;
+        FrameCallbackDone = false;
+        try
+        {
+            while (!FrameCallbackDone)
+            {
+                var (objectId, opcode, args) = ReadMessage();
+                HandleEvent(objectId, opcode, args);
+                if (objectId == callbackId && opcode == 0) FrameCallbackDone = true; // wl_callback.done(data)
+            }
+        }
+        catch (SocketException)
+        {
+        }
+    }
+
     // wl_surface(surfaceId).commit() -- opcode 6 in the wl_surface
     // request order (destroy isn't a wl_surface request; the real
     // opcode list is attach=1,damage=2,frame=3,set_opaque_region=4,

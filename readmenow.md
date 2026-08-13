@@ -883,3 +883,37 @@ pass.** This closes out every `wl_*`/`xdg_*`/`zxdg_*`/`zwlr_*` global
 `state.rs` advertises — the full Wayland protocol surface this
 compositor's Rust source actually touches is now represented in
 `Pancake.Wayland`.
+
+## The real frame loop — `Pancake.Cn` + `Pancake.Render` + `Pancake.Wayland`, actually wired together
+
+The piece `Pancake.App`'s udev backend explicitly flagged as missing:
+`PancakeWaylandServer` now opens a real `GpuDevice` on `Start()` (best
+effort — catches and logs cleanly if the sandbox's GPU fault blocks it,
+same as every other GPU-touching path this session), and a background
+repaint thread ticks every 50ms (the same "fixed-interval stand-in"
+philosophy as `udev.rs`'s own 20Hz repaint safety-net, since real
+VBlank-paced rendering needs the DRM atomic-commit/pageflip machinery
+that was never built — only enumeration exists in
+`Pancake.Cn.DrmResources`). Each tick: if a GPU context exists, runs a
+real `AeroRenderer` frame; either way, delivers real
+`wl_callback.done` events to any surface that asked for one via
+`wl_surface.frame` — that's the actual client-visible contract every
+Wayland client depends on for frame pacing, and it doesn't require a
+real display to be honest and correct.
+
+**The threading is real, not hand-waved**: the repaint thread can't call
+NWayland resource methods directly (violates the library's own
+documented single-dispatch-context rule, see the `Pancake.Wayland`
+section above), so it posts a `RepaintTick` custom event and the actual
+`wl_callback.Done()`/GL calls run on the dispatch thread inside
+`NextEvent()`'s loop — the same `Post()`-based pattern already
+established for `NewClientFd`.
+
+**Verified end-to-end with the same independent client**: request a
+real `wl_callback` via `wl_surface.frame`, commit, and confirm the
+background repaint loop — running independently, on its own timer —
+actually delivers `wl_callback.done` back. Also confirmed the graceful
+no-GPU path for real: `server.GpuAvailable` is `false` in this sandbox
+(the known fault, caught cleanly) and `FramesRendered` stays `0`, but
+the frame callback still arrives correctly — proving the degraded path
+is protocol-correct, not just "doesn't crash." **1 new check, passing.**

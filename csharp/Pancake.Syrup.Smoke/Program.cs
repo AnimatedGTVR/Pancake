@@ -795,6 +795,20 @@ Check("shell: initial_geometry cascades with count", g1.Loc.X > g0.Loc.X && g1.L
             Check("wayland: no protocol error after data device object creation", !client.SawError);
         }
 
+        // Real frame loop verification: request a real wl_callback via
+        // wl_surface.frame on the layer-shell surface (id 11) created
+        // above, then confirm PancakeWaylandServer's repaint loop (a
+        // background thread ticking independently of anything this
+        // client does) actually delivers wl_callback.done back -- the
+        // real, client-visible contract every Wayland client depends on
+        // for frame pacing, regardless of whether this sandbox's GPU
+        // fault allows real pixels to render.
+        client.RequestFrameCallback(surfaceId: 11, newCallbackId: 21);
+        client.CommitSurface(11);
+        client.WaitForFrameCallback(callbackId: 21, timeoutMs: 500);
+        Check("wayland: repaint loop delivers a real wl_callback.done", client.FrameCallbackDone);
+        Console.WriteLine($"     server.GpuAvailable={server.GpuAvailable} server.FramesRendered={server.FramesRendered}");
+
         // Real xdg_toplevel.destroy -> toplevel_destroyed port should
         // remove the earlier window from both the space and the
         // workspace. Run last since the decoration test above still
