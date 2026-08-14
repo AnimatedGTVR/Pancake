@@ -947,10 +947,25 @@ connection setup handshake, atom interning, typed property formats —
 is enough surface to be comparable in scope to the entire
 `Pancake.Wayland` protocol layer, not a quick add-on).
 
-**Not started — this is scoping only.** Real next step whenever this
-becomes a priority: confirm `libxcb.so`'s core connection/window
-request surface via P/Invoke the same way `Drm.cs`/`Gbm.cs` did,
-spawn the real installed `Xwayland` binary, and verify a connection
-handshake actually completes — same "prove the load-bearing assumption
-for real" discipline as the rest of this project, before committing to
-either the P/Invoke or hand-rolled-protocol path.
+**Started for real — the connection handshake works.** Turns out this
+sandbox already has a real, live `Xwayland :0` process running as part
+of its own desktop session (`ps aux` showed it: `-rootless -wm 149`) —
+not something to spawn for a test, an actual X server already there.
+`Xcb.cs`/`X11Connection.cs` in `Pancake.Cn` add real `xcb_connect`/
+`xcb_get_setup`/`xcb_setup_roots_iterator`/`xcb_disconnect` bindings
+(struct layouts checked against the real `xproto.h` on this system
+first, same discipline as the Xcursor format check), and connecting to
+that real, live X server actually works: real protocol version
+(`11.0`, i.e. X11 exactly), a real root window ID (`0x448`), and real
+screen dimensions (`7040×1600` — this sandbox's actual multi-monitor
+desktop resolution). **4 new checks, all pass, against a genuinely
+live X server, not a synthetic target.**
+
+This resolves the load-bearing question the earlier scoping note left
+open: the `libxcb.so` P/Invoke approach works. What's still ahead is
+everything past the handshake — the actual window-manager request/
+event surface (`CreateWindow`/`ConfigureWindow`/property get-set,
+ICCCM/EWMH conventions) `XwmHandler` in `xwayland.rs` needs, none of
+which exists yet. But the single biggest unknown (does a real X11
+connection from C# even work) is now answered with evidence, same
+pattern as every other "prove it first" step this session.

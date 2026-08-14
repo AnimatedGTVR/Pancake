@@ -326,6 +326,38 @@ else
     }
 }
 
+// 6c. Real xcb connection bring-up -- the load-bearing assumption for
+// any future XWayland work (see readmenow.md's scoping section).
+// Connects to whatever real X server DISPLAY points at in this
+// environment, if any -- this sandbox happens to have a real, live
+// `Xwayland :0` process running as part of the desktop session, so
+// this is a genuine connection to a genuine X server, not a synthetic
+// target.
+{
+    var display = Environment.GetEnvironmentVariable("DISPLAY");
+    if (string.IsNullOrEmpty(display))
+    {
+        Console.WriteLine("SKIP cn: DISPLAY not set, no X server to connect to in this environment");
+    }
+    else
+    {
+        try
+        {
+            using var x11 = Pancake.Cn.X11Connection.Connect();
+            Check("cn: xcb_connect succeeded", true);
+            Check("cn: real X11 protocol version received", x11.ProtocolMajorVersion == 11);
+            Check("cn: real root window id received", x11.RootWindow != 0);
+            Check("cn: real screen dimensions received", x11.RootWidth > 0 && x11.RootHeight > 0);
+            Console.WriteLine($"     DISPLAY={display} protocol={x11.ProtocolMajorVersion}.{x11.ProtocolMinorVersion} " +
+                $"root=0x{x11.RootWindow:x} screen={x11.RootWidth}x{x11.RootHeight}");
+        }
+        catch (Exception e)
+        {
+            Check($"cn: xcb_connect ({e.Message})", false);
+        }
+    }
+}
+
 // 7. Pancake.Shell's TileTree -- pure logic, no GPU/hardware needed, so
 // this is thoroughly testable regardless of the sandbox's GPU state.
 var outputGeo = new Rectangle(0, 0, 1920, 1080);
